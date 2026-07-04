@@ -12,6 +12,7 @@ import {
   addPaperNode,
   nodeFromPaper,
   nodeIdForPaper,
+  removeNode,
   upgradePlaceholderTitle,
   type ExplorationGraph,
   type GraphNode,
@@ -216,6 +217,14 @@ export default function App() {
     void openFromUrl(node.address, node.title, { kind: "revisit", nodeId: node.id });
   }
 
+  /** Removing a node only edits the graph — the paper stays open in the
+   * viewer. If it was the current node, citation clicks made afterwards
+   * start a fresh root instead of hanging off a ghost. */
+  function handleRemoveNode(id: string) {
+    setGraph((g) => removeNode(g, id));
+    if (currentNodeId === id) setCurrentNodeId(null);
+  }
+
   const canBack = history.index > 0;
   const canForward = history.index < history.entries.length - 1;
   const loading = status.kind === "loading";
@@ -322,6 +331,7 @@ export default function App() {
             graph={graph}
             currentNodeId={currentNodeId}
             onSelectNode={handleGraphSelect}
+            onRemoveNode={handleRemoveNode}
             onClose={() => setGraphOpen(false)}
           />
         )}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
 import { layoutGraph, NODE_H, NODE_W } from "../core/graph/layoutGraph";
@@ -10,7 +10,16 @@ interface GraphPanelProps {
   /** Node of the paper currently shown in the viewer (highlighted). */
   currentNodeId: string | null;
   onSelectNode: (node: GraphNode) => void;
+  onRemoveNode: (id: string) => void;
   onClose: () => void;
+}
+
+const WIDTH_KEY = "arxiv-browser:graph-panel-width";
+const MIN_WIDTH = 240;
+
+function initialWidth(): number {
+  const stored = Number(localStorage.getItem(WIDTH_KEY));
+  return stored >= MIN_WIDTH ? stored : 400;
 }
 
 interface HoverState {
@@ -20,10 +29,45 @@ interface HoverState {
   y: number;
 }
 
-export function GraphPanel({ graph, currentNodeId, onSelectNode, onClose }: GraphPanelProps) {
+export function GraphPanel({
+  graph,
+  currentNodeId,
+  onSelectNode,
+  onRemoveNode,
+  onClose,
+}: GraphPanelProps) {
   const layout = useMemo(() => layoutGraph(graph), [graph]);
   const roots = useMemo(() => rootIds(graph), [graph]);
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [width, setWidth] = useState(initialWidth);
+  const dragStart = useRef<{ x: number; width: number } | null>(null);
+
+  function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
+    dragStart.current = { x: e.clientX, width };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
+  function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
+    const start = dragStart.current;
+    if (!start) return;
+    // The panel hugs the right edge, so dragging left grows it.
+    const next = Math.min(
+      Math.max(MIN_WIDTH, start.width + (start.x - e.clientX)),
+      Math.round(window.innerWidth * 0.85),
+    );
+    setWidth(next);
+  }
+
+  function handleResizeEnd() {
+    if (!dragStart.current) return;
+    dragStart.current = null;
+    try {
+      localStorage.setItem(WIDTH_KEY, String(width));
+    } catch {
+      // persistence is a nice-to-have
+    }
+  }
 
   function handleExport() {
     const blob = new Blob([buildGraphExportHtml(graph)], { type: "text/html" });
@@ -36,7 +80,15 @@ export function GraphPanel({ graph, currentNodeId, onSelectNode, onClose }: Grap
   }
 
   return (
-    <aside className="graph-panel">
+    <aside className="graph-panel" style={{ width }}>
+      <div
+        className="graph-resizer"
+        title="Drag to resize"
+        onPointerDown={handleResizeStart}
+        onPointerMove={handleResizeMove}
+        onPointerUp={handleResizeEnd}
+        onPointerCancel={handleResizeEnd}
+      />
       <div className="graph-panel-header">
         <span className="graph-panel-title">
           Exploration graph
@@ -125,6 +177,19 @@ export function GraphPanel({ graph, currentNodeId, onSelectNode, onClose }: Grap
                   <text className="graph-node-meta" x={10} y={31}>
                     {metaLine(n)}
                   </text>
+                  <g
+                    className="graph-node-remove"
+                    transform={`translate(${NODE_W - 11}, 11)`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHover(null);
+                      onRemoveNode(n.id);
+                    }}
+                  >
+                    <title>Remove from graph</title>
+                    <circle r={7} />
+                    <path d="M -2.6 -2.6 L 2.6 2.6 M 2.6 -2.6 L -2.6 2.6" />
+                  </g>
                 </g>
               );
             })}

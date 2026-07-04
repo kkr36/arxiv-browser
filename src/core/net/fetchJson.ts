@@ -34,6 +34,21 @@ export async function fetchJson<T>(
   return await toJsonResponse<T>(res);
 }
 
+/**
+ * Same direct-then-proxy strategy as fetchJson, for non-JSON bodies (the
+ * arXiv API speaks Atom XML). Returns null on a non-OK response.
+ */
+export async function fetchText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (res.ok) return await res.text();
+  } catch {
+    // fall through to the proxy
+  }
+  const res = await fetch(`${PROXY_PREFIX}${encodeURIComponent(url)}`);
+  return res.ok ? await res.text() : null;
+}
+
 async function toJsonResponse<T>(res: Response): Promise<JsonResponse<T>> {
   const retryAfter = res.headers.get("retry-after");
   const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined;

@@ -3,8 +3,13 @@ import { extractAllPageText } from "./pdf/extractText";
 import { parseBibliography } from "./citations/parseBibliography";
 import { detectMarkersOnPage, type ExcludedRange } from "./citations/detectMarkers";
 import { matchMarkersToEntries } from "./citations/matchMarkersToEntries";
-import { matchPaperByReferenceText } from "./semanticScholar/client";
+import {
+  extractArxivId,
+  guessTitle,
+  matchPaperByReferenceText,
+} from "./semanticScholar/client";
 import { toResolvedPaper } from "./semanticScholar/resolvePaper";
+import { fetchArxivById, searchArxivByTitle } from "./arxiv/searchArxiv";
 import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "./types";
 
 export interface CitationData {
@@ -57,7 +62,9 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 
   const entry = entries[entryIndex];
   const promise = (async () => {
-    const cacheKey = `arxiv-browser:s2:${entry.rawText.slice(0, 120)}`;
+    // v2: bumped when the resolution pipeline improved, so stale results
+    // cached by the old (title-guess-only) logic get re-resolved.
+    const cacheKey = `arxiv-browser:s2v2:${entry.rawText.slice(0, 120)}`;
     const stored = safeLocalStorageGet(cacheKey);
     if (stored) {
       try {
@@ -67,10 +74,9 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
       }
     }
 
-    const s2 = await matchPaperByReferenceText(entry.rawText);
-    if (!s2) return null;
+    const resolved = await resolveRawReference(entry.rawText);
+    if (!resolved) return null;
 
-    const resolved = toResolvedPaper(s2);
     safeLocalStorageSet(cacheKey, JSON.stringify(resolved));
     return resolved;
   })();
@@ -81,6 +87,32 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
   // A resolved `null` is a genuine no-match and stays cached.
   promise.catch(() => resolutionCache.delete(entryIndex));
   return promise;
+}
+
+/**
+ * Semantic Scholar first (richest metadata, handles explicit arXiv ids/DOIs
+ * itself); when it comes up empty, back off to the arXiv API — by explicit
+ * id when the reference names one, else by extracted title.
+ */
+async function resolveRawReference(rawText: string): Promise<ResolvedPaper | null> {
+  const s2 = await matchPaperByReferenceText(rawText);
+  if (s2) return toResolvedPaper(s2);
+
+  const arxivId = extractArxivId(rawText);
+  if (arxivId) {
+    const byId = await fetchArxivById(arxivId);
+    if (byId) return byId;
+    // The id alone is still enough to fetch the PDF.
+    return {
+      title: guessTitle(rawText) ?? rawText.slice(0, 120),
+      authors: [],
+      pdfUrl: `https://arxiv.org/pdf/${arxivId}`,
+      source: "arxiv",
+    };
+  }
+
+  const title = guessTitle(rawText);
+  return title ? searchArxivByTitle(title) : null;
 }
 
 function safeLocalStorageGet(key: string): string | null {

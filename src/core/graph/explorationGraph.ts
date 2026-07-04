@@ -96,6 +96,15 @@ export function upgradePlaceholderTitle(
   };
 }
 
+/** Removes a node and its incident edges. Children of the removed node keep
+ * their other parents, or become roots. Pure: returns a new graph. */
+export function removeNode(graph: ExplorationGraph, id: string): ExplorationGraph {
+  return {
+    nodes: graph.nodes.filter((n) => n.id !== id),
+    edges: graph.edges.filter((e) => e.from !== id && e.to !== id),
+  };
+}
+
 /** Node ids with no incoming edge — the papers the user opened directly. */
 export function rootIds(graph: ExplorationGraph): Set<string> {
   const targets = new Set(graph.edges.map((e) => e.to));
