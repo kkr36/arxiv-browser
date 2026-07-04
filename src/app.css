@@ -13,9 +13,29 @@ body {
   color: #eee;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app-content-empty {
+  flex: 1;
+}
+
 .app-header {
-  position: sticky;
-  top: 0;
   z-index: 50;
   background: #1a1a1f;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);

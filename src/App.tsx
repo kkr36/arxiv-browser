@@ -4,8 +4,20 @@ import { fetchPdfBytes } from "./core/net/fetchPdfBytes";
 import { resolveInputToPdfUrl } from "./core/resolveInput";
 import { loadPdfDocument } from "./core/pdf/loadPdf";
 import { buildCitationData, resetResolutionCache, type CitationData } from "./core/citationService";
+import { getPaperByArxivId } from "./core/semanticScholar/client";
+import { toResolvedPaper } from "./core/semanticScholar/resolvePaper";
 import type { ResolvedPaper } from "./core/types";
+import {
+  EMPTY_GRAPH,
+  addPaperNode,
+  nodeFromPaper,
+  nodeIdForPaper,
+  upgradePlaceholderTitle,
+  type ExplorationGraph,
+  type GraphNode,
+} from "./core/graph/explorationGraph";
 import { PdfViewer } from "./viewer/PdfViewer";
+import { GraphPanel } from "./graph/GraphPanel";
 import "./app.css";
 
 interface PaperView {
@@ -22,12 +34,23 @@ interface HistoryEntry {
   label: string;
   /** Address-bar value for this entry: the PDF URL, or a file name for uploads. */
   address: string;
+  /** Exploration-graph node this entry belongs to, so back/forward keeps the
+   * graph's "current paper" (and thus citation-click parenting) in sync. */
+  nodeId: string;
 }
 
 type Status =
   | { kind: "idle" }
   | { kind: "loading"; message: string }
   | { kind: "error"; message: string; link?: { url: string; text: string } };
+
+/** How a load was initiated, which decides its place in the exploration graph:
+ * address-bar loads are roots, citation clicks hang off the paper they were
+ * clicked in, and graph-node revisits leave the graph untouched. */
+type OpenOrigin =
+  | { kind: "root" }
+  | { kind: "citation"; paper: ResolvedPaper; parentId: string | null }
+  | { kind: "revisit"; nodeId: string };
 
 export default function App() {
   const [input, setInput] = useState("1706.03762");
@@ -37,6 +60,9 @@ export default function App() {
     entries: [],
     index: -1,
   });
+  const [graph, setGraph] = useState<ExplorationGraph>(EMPTY_GRAPH);
+  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
+  const [graphOpen, setGraphOpen] = useState(true);
   // Monotonic id per load; a stale async load bails out instead of clobbering
   // a newer one (e.g. two citation clicks in quick succession).
   const loadSeq = useRef(0);
@@ -46,31 +72,54 @@ export default function App() {
     entry: HistoryEntry,
     seq: number,
     nav: { push: true } | { push: false; index: number },
-  ) {
+  ): Promise<PDFDocumentProxy | null> {
     setStatus({ kind: "loading", message: "Parsing PDF…" });
     resetResolutionCache();
     const doc = await loadPdfDocument(entry.bytes.slice(0));
-    if (seq !== loadSeq.current) return;
+    if (seq !== loadSeq.current) return null;
     setStatus({ kind: "loading", message: "Finding citations…" });
     const citations = await buildCitationData(doc);
-    if (seq !== loadSeq.current) return;
+    if (seq !== loadSeq.current) return null;
     setView({ doc, citations, label: entry.label });
     setInput(entry.address);
     setStatus({ kind: "idle" });
+    setCurrentNodeId(entry.nodeId);
     setHistory((h) =>
       nav.push
         ? { entries: [...h.entries.slice(0, h.index + 1), entry], index: h.index + 1 }
         : { ...h, index: nav.index },
     );
+    return doc;
   }
 
-  async function openFromUrl(url: string, label?: string) {
+  async function openFromUrl(url: string, label: string | undefined, origin: OpenOrigin) {
     const seq = ++loadSeq.current;
+    const nodeId =
+      origin.kind === "root"
+        ? url
+        : origin.kind === "citation"
+          ? nodeIdForPaper(origin.paper)
+          : origin.nodeId;
     try {
       setStatus({ kind: "loading", message: "Fetching PDF…" });
       const bytes = await fetchPdfBytes(url);
       if (seq !== loadSeq.current) return;
-      await showEntry({ bytes, label: label ?? url, address: url }, seq, { push: true });
+      const doc = await showEntry({ bytes, label: label ?? url, address: url, nodeId }, seq, {
+        push: true,
+      });
+      if (!doc) return;
+      if (origin.kind === "root") {
+        setGraph((g) =>
+          addPaperNode(
+            g,
+            { id: nodeId, title: label ?? url, address: url, pdfUrl: url, kind: "pdf" },
+            null,
+          ),
+        );
+        void enrichRootNode(url, nodeId, doc, setGraph);
+      } else if (origin.kind === "citation") {
+        setGraph((g) => addPaperNode(g, nodeFromPaper(origin.paper), origin.parentId));
+      }
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -79,7 +128,7 @@ export default function App() {
   function handleLoad() {
     if (!input.trim()) return;
     try {
-      void openFromUrl(resolveInputToPdfUrl(input));
+      void openFromUrl(resolveInputToPdfUrl(input), undefined, { kind: "root" });
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -92,7 +141,18 @@ export default function App() {
     try {
       const bytes = await file.arrayBuffer();
       if (seq !== loadSeq.current) return;
-      await showEntry({ bytes, label: file.name, address: file.name }, seq, { push: true });
+      const nodeId = file.name;
+      const doc = await showEntry(
+        { bytes, label: file.name, address: file.name, nodeId },
+        seq,
+        { push: true },
+      );
+      if (!doc) return;
+      setGraph((g) =>
+        addPaperNode(g, { id: nodeId, title: file.name, address: file.name, kind: "pdf" }, null),
+      );
+      const title = await readPdfTitle(doc);
+      if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -112,13 +172,17 @@ export default function App() {
 
   /** A citation marker was clicked and resolved: open its PDF in-app, so the
    * cited work gets the same annotated treatment. Papers with no PDF anywhere
-   * (Semantic Scholar page only) can't be rendered here and open in a new tab. */
+   * (Semantic Scholar page only) can't be rendered here and open in a new tab.
+   * Either way the paper joins the exploration graph as a child of the paper
+   * the citation was clicked in. */
   function handleOpenPaper(paper: ResolvedPaper) {
+    const parentId = currentNodeId;
     if (paper.pdfUrl) {
-      void openFromUrl(paper.pdfUrl, paper.title);
+      void openFromUrl(paper.pdfUrl, paper.title, { kind: "citation", paper, parentId });
       return;
     }
     if (paper.semanticScholarUrl) {
+      setGraph((g) => addPaperNode(g, nodeFromPaper(paper), parentId));
       const win = window.open(paper.semanticScholarUrl, "_blank", "noopener");
       if (!win) {
         // Popup blocked (resolution outlived the click's user activation) —
@@ -132,6 +196,24 @@ export default function App() {
       return;
     }
     setStatus({ kind: "error", message: `No link found for “${paper.title}”.` });
+  }
+
+  /** A node in the exploration graph was clicked: bring that paper back up.
+   * Prefer replaying its bytes from history (works for uploads, skips the
+   * refetch); fall back to refetching by address. Revisits never add edges. */
+  function handleGraphSelect(node: GraphNode) {
+    if (node.id === currentNodeId || status.kind === "loading") return;
+    if (!node.address) {
+      if (node.semanticScholarUrl) window.open(node.semanticScholarUrl, "_blank", "noopener");
+      return;
+    }
+    for (let i = history.entries.length - 1; i >= 0; i--) {
+      if (history.entries[i].nodeId === node.id) {
+        void navigate(i - history.index);
+        return;
+      }
+    }
+    void openFromUrl(node.address, node.title, { kind: "revisit", nodeId: node.id });
   }
 
   const canBack = history.index > 0;
@@ -191,6 +273,9 @@ export default function App() {
           <button onClick={() => fileInputRef.current?.click()} disabled={loading}>
             Upload PDF
           </button>
+          <button onClick={() => setGraphOpen((o) => !o)}>
+            {graphOpen ? "Hide graph" : "Graph"}
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -220,15 +305,73 @@ export default function App() {
         )}
       </header>
 
-      {view && (
-        <PdfViewer
-          doc={view.doc}
-          pages={view.citations.pages}
-          markersByPage={view.citations.markersByPage}
-          entries={view.citations.entries}
-          onOpenPaper={handleOpenPaper}
-        />
-      )}
+      <div className="app-main">
+        {view ? (
+          <PdfViewer
+            doc={view.doc}
+            pages={view.citations.pages}
+            markersByPage={view.citations.markersByPage}
+            entries={view.citations.entries}
+            onOpenPaper={handleOpenPaper}
+          />
+        ) : (
+          <div className="app-content-empty" />
+        )}
+        {graphOpen && (
+          <GraphPanel
+            graph={graph}
+            currentNodeId={currentNodeId}
+            onSelectNode={handleGraphSelect}
+            onClose={() => setGraphOpen(false)}
+          />
+        )}
+      </div>
     </div>
   );
+}
+
+/** Root nodes start out labeled with what the user typed (a URL). Swap in
+ * real metadata: Semantic Scholar by arXiv id when the URL is an arXiv PDF
+ * (title, authors, abstract — feeds the hover preview and export), else the
+ * PDF's own metadata title. Best-effort; the URL label stays on failure. */
+async function enrichRootNode(
+  url: string,
+  nodeId: string,
+  doc: PDFDocumentProxy,
+  setGraph: React.Dispatch<React.SetStateAction<ExplorationGraph>>,
+): Promise<void> {
+  const arxivId = url.match(/arxiv\.org\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1];
+  if (arxivId) {
+    try {
+      const s2 = await getPaperByArxivId(arxivId);
+      if (s2) {
+        const node = nodeFromPaper(toResolvedPaper(s2));
+        setGraph((g) =>
+          addPaperNode(g, { ...node, id: nodeId, address: url, pdfUrl: url, kind: "pdf" }, null),
+        );
+        return;
+      }
+    } catch {
+      // rate limit / network — fall back to the PDF's own metadata
+    }
+  }
+  const title = await readPdfTitle(doc);
+  if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
+}
+
+/** Pulls a usable title out of the PDF's own metadata, to replace URL-shaped
+ * placeholder labels on root nodes. Returns null for junk (empty, "untitled",
+ * LaTeX build artifacts like "paper.dvi"). */
+async function readPdfTitle(doc: PDFDocumentProxy): Promise<string | null> {
+  try {
+    const { info } = await doc.getMetadata();
+    const raw = (info as { Title?: unknown }).Title;
+    if (typeof raw !== "string") return null;
+    const title = raw.trim();
+    if (title.length < 4) return null;
+    if (/^untitled/i.test(title) || /\.(dvi|tex|pdf|ps)$/i.test(title)) return null;
+    return title;
+  } catch {
+    return null;
+  }
 }

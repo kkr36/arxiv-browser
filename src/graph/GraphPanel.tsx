@@ -1,0 +1,185 @@
+import { useMemo, useState } from "react";
+import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
+import { rootIds } from "../core/graph/explorationGraph";
+import { layoutGraph, NODE_H, NODE_W } from "../core/graph/layoutGraph";
+import { buildGraphExportHtml } from "./exportGraphHtml";
+import "./graphPanel.css";
+
+interface GraphPanelProps {
+  graph: ExplorationGraph;
+  /** Node of the paper currently shown in the viewer (highlighted). */
+  currentNodeId: string | null;
+  onSelectNode: (node: GraphNode) => void;
+  onClose: () => void;
+}
+
+interface HoverState {
+  node: GraphNode;
+  /** Viewport coords of the hovered node box, for anchoring the preview card. */
+  x: number;
+  y: number;
+}
+
+export function GraphPanel({ graph, currentNodeId, onSelectNode, onClose }: GraphPanelProps) {
+  const layout = useMemo(() => layoutGraph(graph), [graph]);
+  const roots = useMemo(() => rootIds(graph), [graph]);
+  const [hover, setHover] = useState<HoverState | null>(null);
+
+  function handleExport() {
+    const blob = new Blob([buildGraphExportHtml(graph)], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "paper-exploration-graph.html";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <aside className="graph-panel">
+      <div className="graph-panel-header">
+        <span className="graph-panel-title">
+          Exploration graph
+          {graph.nodes.length > 0 && (
+            <span className="graph-panel-count"> · {graph.nodes.length}</span>
+          )}
+        </span>
+        <button onClick={handleExport} disabled={graph.nodes.length === 0} title="Download as a standalone HTML page">
+          Export
+        </button>
+        <button onClick={onClose} title="Hide graph">
+          ✕
+        </button>
+      </div>
+
+      {graph.nodes.length === 0 ? (
+        <div className="graph-empty">
+          Load a paper to start the graph. Papers opened from the address bar become roots;
+          papers opened by clicking a citation become children of the paper you were reading.
+        </div>
+      ) : (
+        <div className="graph-canvas" onMouseLeave={() => setHover(null)}>
+          <svg width={layout.width} height={layout.height}>
+            <defs>
+              <marker
+                id="graph-arrow"
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0 0 L8 4 L0 8 z" className="graph-arrow-head" />
+              </marker>
+            </defs>
+
+            {graph.edges.map((e) => {
+              const a = layout.positions.get(e.from);
+              const b = layout.positions.get(e.to);
+              if (!a || !b) return null;
+              const x1 = a.x + NODE_W;
+              const y1 = a.y + NODE_H / 2;
+              const x2 = b.x;
+              const y2 = b.y + NODE_H / 2;
+              const mx = (x1 + x2) / 2;
+              return (
+                <path
+                  key={`${e.from}→${e.to}`}
+                  className="graph-edge"
+                  d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2 - 3} ${y2}`}
+                  markerEnd="url(#graph-arrow)"
+                />
+              );
+            })}
+
+            {graph.nodes.map((n) => {
+              const p = layout.positions.get(n.id);
+              if (!p) return null;
+              const classes = [
+                "graph-node",
+                n.id === currentNodeId ? "current" : "",
+                n.kind === "external" ? "external" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return (
+                <g
+                  key={n.id}
+                  className={classes}
+                  transform={`translate(${p.x},${p.y})`}
+                  onMouseEnter={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setHover({ node: n, x: rect.left, y: rect.top });
+                  }}
+                  onMouseLeave={() => setHover((h) => (h?.node.id === n.id ? null : h))}
+                  onClick={() => onSelectNode(n)}
+                >
+                  <rect className="graph-node-box" width={NODE_W} height={NODE_H} rx={7} />
+                  {roots.has(n.id) && (
+                    <rect className="graph-node-rootbar" width={3} height={NODE_H} rx={1.5} />
+                  )}
+                  <text className="graph-node-title" x={10} y={17}>
+                    {truncate(n.title, 25)}
+                  </text>
+                  <text className="graph-node-meta" x={10} y={31}>
+                    {metaLine(n)}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+
+      {hover && <HoverCard hover={hover} isCurrent={hover.node.id === currentNodeId} />}
+    </aside>
+  );
+}
+
+function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean }) {
+  const { node } = hover;
+  // The panel hugs the right edge, so the card opens to the left of the node.
+  const right = Math.max(8, window.innerWidth - hover.x + 10);
+  const top = Math.min(hover.y, window.innerHeight - 260);
+
+  const authors = node.authors ?? [];
+  const meta = [
+    authors.slice(0, 4).join(", ") + (authors.length > 4 ? ", et al." : ""),
+    node.year ? String(node.year) : "",
+    node.venue ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="graph-hover-card" style={{ right, top }}>
+      <div className="graph-hover-title">{node.title}</div>
+      {meta && <div className="graph-hover-meta">{meta}</div>}
+      {node.abstract && <div className="graph-hover-abstract">{node.abstract}</div>}
+      <div className="graph-hover-footer">
+        {isCurrent
+          ? "Currently open"
+          : node.address
+            ? "Click to open in the browser"
+            : node.semanticScholarUrl
+              ? "Click to open on Semantic Scholar"
+              : "No link available"}
+      </div>
+    </div>
+  );
+}
+
+function metaLine(n: GraphNode): string {
+  const bits: string[] = [];
+  if (n.year) bits.push(String(n.year));
+  if (n.authors?.length) {
+    bits.push(truncate(n.authors[0], 16) + (n.authors.length > 1 ? " et al." : ""));
+  }
+  if (n.kind === "external") bits.push("no PDF");
+  return bits.join(" · ");
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}

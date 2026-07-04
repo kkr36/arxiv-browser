@@ -1,0 +1,151 @@
+.graph-panel {
+  flex: none;
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #1a1a1f;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.graph-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.graph-panel-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.graph-panel-count {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.graph-panel-header button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.graph-panel-header button:hover:not(:disabled) {
+  background: #34343f;
+}
+
+.graph-panel-header button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.graph-empty {
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.6;
+}
+
+.graph-canvas {
+  flex: 1;
+  overflow: auto;
+}
+
+.graph-edge {
+  stroke: #55555f;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.graph-arrow-head {
+  fill: #55555f;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node-box {
+  fill: #23232a;
+  stroke: rgba(255, 255, 255, 0.18);
+}
+
+.graph-node:hover .graph-node-box {
+  stroke: #7ab8ff;
+}
+
+.graph-node.current .graph-node-box {
+  fill: rgba(57, 135, 229, 0.14);
+  stroke: #3987e5;
+  stroke-width: 1.5;
+}
+
+.graph-node.external .graph-node-box {
+  stroke-dasharray: 4 3;
+}
+
+.graph-node-rootbar {
+  fill: #199e70;
+}
+
+.graph-node-title {
+  fill: #eee;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.graph-node-meta {
+  fill: #9a9aa3;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.graph-hover-card {
+  position: fixed;
+  z-index: 100;
+  max-width: 320px;
+  background: #1f1f24;
+  color: #eee;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.graph-hover-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.graph-hover-meta {
+  opacity: 0.75;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.graph-hover-abstract {
+  opacity: 0.9;
+  font-size: 12px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+
+.graph-hover-footer {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.6;
+}

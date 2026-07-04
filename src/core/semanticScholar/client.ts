@@ -65,6 +65,15 @@ function s2Fetch<T>(url: string): Promise<JsonResponse<T>> {
   return run;
 }
 
+/**
+ * Looks up a paper directly by its arXiv id — for papers the user opened
+ * from the address bar, where there's no reference text to match against.
+ */
+export async function getPaperByArxivId(arxivId: string): Promise<S2Paper | null> {
+  const res = await s2Fetch<S2Paper>(`${BASE}/paper/arXiv:${arxivId}?fields=${FIELDS}`);
+  return res.data?.title ? res.data : null;
+}
+
 function cleanQuery(rawText: string): string {
   return rawText
     .replace(/^\[\d+\]\s*/, "")

@@ -28,6 +28,7 @@ interface TooltipState {
 const SCALE = 1.5;
 
 export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: PdfViewerProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markerLookupRef = useRef(new Map<string, CitationMarker>());
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -49,7 +50,7 @@ export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: P
     setRenderError(null);
     // Browser-like navigation: a newly opened document starts at the top
     // rather than inheriting the previous paper's scroll offset.
-    window.scrollTo({ top: 0 });
+    scrollRef.current?.scrollTo({ top: 0 });
 
     (async () => {
       for (const pageText of pages) {
@@ -192,7 +193,7 @@ export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: P
   }, [entries, onOpenPaper]);
 
   return (
-    <div className="pdf-viewer-scroll">
+    <div ref={scrollRef} className="pdf-viewer-scroll">
       {renderError && <div className="status-line error">{renderError}</div>}
       <div ref={containerRef} className="pdf-viewer" />
       {tooltip && (
