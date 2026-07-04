@@ -20,6 +20,8 @@ Then open the printed local URL, and either:
 
 Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in a new tab (falls back to its Semantic Scholar page if no open-access PDF is available).
 
+The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text; the `↗` button resolves and opens that paper, same as clicking an in-text marker.
+
 ### Semantic Scholar API key (optional but recommended)
 
 The public Semantic Scholar pool is heavily rate-limited. With [an API key](https://www.semanticscholar.org/product/api#api-key), put it in `.env.local`:

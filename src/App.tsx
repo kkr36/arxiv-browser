@@ -18,6 +18,7 @@ import {
   type GraphNode,
 } from "./core/graph/explorationGraph";
 import { PdfViewer } from "./viewer/PdfViewer";
+import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
 import "./app.css";
 
@@ -64,6 +65,7 @@ export default function App() {
   const [graph, setGraph] = useState<ExplorationGraph>(EMPTY_GRAPH);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [graphOpen, setGraphOpen] = useState(true);
+  const [citationsOpen, setCitationsOpen] = useState(false);
   // Monotonic id per load; a stale async load bails out instead of clobbering
   // a newer one (e.g. two citation clicks in quick succession).
   const loadSeq = useRef(0);
@@ -282,6 +284,13 @@ export default function App() {
           <button onClick={() => fileInputRef.current?.click()} disabled={loading}>
             Upload PDF
           </button>
+          <button
+            onClick={() => setCitationsOpen((o) => !o)}
+            disabled={!view}
+            title="List of this paper's parsed references"
+          >
+            {citationsOpen ? "Hide citations" : "Citations"}
+          </button>
           <button onClick={() => setGraphOpen((o) => !o)}>
             {graphOpen ? "Hide graph" : "Graph"}
           </button>
@@ -325,6 +334,14 @@ export default function App() {
           />
         ) : (
           <div className="app-content-empty" />
+        )}
+        {citationsOpen && view && (
+          <CitationsPanel
+            entries={view.citations.entries}
+            markersByPage={view.citations.markersByPage}
+            onOpenPaper={handleOpenPaper}
+            onClose={() => setCitationsOpen(false)}
+          />
         )}
         {graphOpen && (
           <GraphPanel
