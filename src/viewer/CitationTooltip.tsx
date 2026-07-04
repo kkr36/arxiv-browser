@@ -38,7 +38,7 @@ export function CitationTooltip({ x, y, status, paper, entry, errorMessage }: Ci
           </div>
           {paper.abstract && <div className="citation-tooltip-abstract">{paper.abstract}</div>}
           <div className="citation-tooltip-footer">
-            {paper.pdfUrl ? "Click to open PDF" : "Click to open on Semantic Scholar"}
+            {paper.pdfUrl ? "Click to open here" : "Click to open on Semantic Scholar"}
           </div>
         </div>
       )}

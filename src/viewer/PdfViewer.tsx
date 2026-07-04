@@ -12,6 +12,8 @@ interface PdfViewerProps {
   pages: PageText[];
   markersByPage: Map<number, CitationMarker[]>;
   entries: BibEntry[];
+  /** Called with the resolved paper when a citation marker is clicked. */
+  onOpenPaper: (paper: ResolvedPaper) => void;
 }
 
 interface TooltipState {
@@ -25,7 +27,7 @@ interface TooltipState {
 
 const SCALE = 1.5;
 
-export function PdfViewer({ doc, pages, markersByPage, entries }: PdfViewerProps) {
+export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const markerLookupRef = useRef(new Map<string, CitationMarker>());
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -45,6 +47,9 @@ export function PdfViewer({ doc, pages, markersByPage, entries }: PdfViewerProps
     if (!container) return;
     container.innerHTML = "";
     setRenderError(null);
+    // Browser-like navigation: a newly opened document starts at the top
+    // rather than inheriting the previous paper's scroll offset.
+    window.scrollTo({ top: 0 });
 
     (async () => {
       for (const pageText of pages) {
@@ -152,22 +157,28 @@ export function PdfViewer({ doc, pages, markersByPage, entries }: PdfViewerProps
       const found = findMarker(e.target);
       if (!found) return;
       e.preventDefault();
-      // Open the tab synchronously while we still have the user activation —
-      // window.open inside the async .then gets popup-blocked when resolution
-      // is slow. Navigate (or close) it once the lookup finishes.
-      const win = window.open("about:blank", "_blank");
-      if (win) win.opener = null;
+      const rect = found.el.getBoundingClientRect();
+      setTooltip({ marker: found.marker, x: rect.left, y: rect.bottom, status: "loading" });
       resolveEntry(entries, found.marker.entryIndices[0])
         .then((paper) => {
-          const url = paper?.pdfUrl ?? paper?.semanticScholarUrl;
-          if (!url) {
-            win?.close();
+          if (!paper) {
+            setTooltip((prev) =>
+              prev && prev.marker.id === found.marker.id
+                ? { ...prev, status: "error", paper }
+                : prev,
+            );
             return;
           }
-          if (win) win.location.href = url;
-          else window.open(url, "_blank", "noopener");
+          setTooltip(null);
+          onOpenPaper(paper);
         })
-        .catch(() => win?.close());
+        .catch((err) => {
+          setTooltip((prev) =>
+            prev && prev.marker.id === found.marker.id
+              ? { ...prev, status: "error", errorMessage: (err as Error).message }
+              : prev,
+          );
+        });
     };
 
     container.addEventListener("mouseover", handleOver);
@@ -178,7 +189,7 @@ export function PdfViewer({ doc, pages, markersByPage, entries }: PdfViewerProps
       container.removeEventListener("mouseout", handleOut);
       container.removeEventListener("click", handleClick);
     };
-  }, [entries]);
+  }, [entries, onOpenPaper]);
 
   return (
     <div className="pdf-viewer-scroll">
