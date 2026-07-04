@@ -69,6 +69,11 @@
   outline: none;
 }
 
+.citation-mark-selected {
+  background: rgba(0, 145, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(0, 145, 255, 0.75);
+}
+
 .citation-tooltip {
   position: fixed;
   z-index: 100;

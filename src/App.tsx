@@ -66,6 +66,7 @@ export default function App() {
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [graphOpen, setGraphOpen] = useState(true);
   const [citationsOpen, setCitationsOpen] = useState(false);
+  const [focusedCitationEntry, setFocusedCitationEntry] = useState<number | null>(null);
   // Monotonic id per load; a stale async load bails out instead of clobbering
   // a newer one (e.g. two citation clicks in quick succession).
   const loadSeq = useRef(0);
@@ -84,6 +85,7 @@ export default function App() {
     const citations = await buildCitationData(doc);
     if (seq !== loadSeq.current) return null;
     setView({ doc, citations, label: entry.label });
+    setFocusedCitationEntry(null);
     setInput(entry.address);
     setStatus({ kind: "idle" });
     setCurrentNodeId(entry.nodeId);
@@ -330,6 +332,7 @@ export default function App() {
             pages={view.citations.pages}
             markersByPage={view.citations.markersByPage}
             entries={view.citations.entries}
+            focusedEntryIndex={focusedCitationEntry}
             onOpenPaper={handleOpenPaper}
           />
         ) : (
@@ -339,6 +342,7 @@ export default function App() {
           <CitationsPanel
             entries={view.citations.entries}
             markersByPage={view.citations.markersByPage}
+            onFindReferences={setFocusedCitationEntry}
             onOpenPaper={handleOpenPaper}
             onClose={() => setCitationsOpen(false)}
           />

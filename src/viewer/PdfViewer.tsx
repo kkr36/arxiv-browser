@@ -12,6 +12,7 @@ interface PdfViewerProps {
   pages: PageText[];
   markersByPage: Map<number, CitationMarker[]>;
   entries: BibEntry[];
+  focusedEntryIndex: number | null;
   /** Called with the resolved paper when a citation marker is clicked. */
   onOpenPaper: (paper: ResolvedPaper) => void;
 }
@@ -27,12 +28,20 @@ interface TooltipState {
 
 const SCALE = 1.5;
 
-export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: PdfViewerProps) {
+export function PdfViewer({
+  doc,
+  pages,
+  markersByPage,
+  entries,
+  focusedEntryIndex,
+  onOpenPaper,
+}: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markerLookupRef = useRef(new Map<string, CitationMarker>());
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderVersion, setRenderVersion] = useState(0);
 
   useEffect(() => {
     const lookup = new Map<string, CitationMarker>();
@@ -102,6 +111,7 @@ export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: P
         const markers = markersByPage.get(pageText.pageNumber) ?? [];
         applyCitationOverlay(textLayer.textDivs, pageText.items, markers);
       }
+      if (!cancelled) setRenderVersion((v) => v + 1);
     })().catch((err) => {
       if (!cancelled) setRenderError(`Failed to render PDF: ${(err as Error).message}`);
     });
@@ -110,6 +120,28 @@ export function PdfViewer({ doc, pages, markersByPage, entries, onOpenPaper }: P
       cancelled = true;
     };
   }, [doc, pages, markersByPage]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const marked = [...container.querySelectorAll<HTMLElement>(".citation-mark-selected")];
+    for (const el of marked) el.classList.remove("citation-mark-selected");
+    if (focusedEntryIndex === null) return;
+
+    const markerIds = new Set<string>();
+    for (const markers of markersByPage.values()) {
+      for (const marker of markers) {
+        if (marker.entryIndices.includes(focusedEntryIndex)) markerIds.add(marker.id);
+      }
+    }
+    if (markerIds.size === 0) return;
+
+    const matches = [...container.querySelectorAll<HTMLElement>(".citation-mark")].filter(
+      (el) => !!el.dataset.markerId && markerIds.has(el.dataset.markerId),
+    );
+    for (const el of matches) el.classList.add("citation-mark-selected");
+    matches[0]?.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  }, [focusedEntryIndex, markersByPage, renderVersion]);
 
   useEffect(() => {
     const container = containerRef.current;

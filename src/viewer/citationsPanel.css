@@ -133,7 +133,7 @@
   padding: 1px 7px;
 }
 
-.cites-item-open {
+.cites-item-action {
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -144,12 +144,12 @@
   cursor: pointer;
 }
 
-.cites-item-open:hover:not(:disabled) {
+.cites-item-action:hover:not(:disabled) {
   background: #34343f;
   border-color: #7ab8ff;
 }
 
-.cites-item-open:disabled {
+.cites-item-action:disabled {
   opacity: 0.5;
   cursor: default;
 }

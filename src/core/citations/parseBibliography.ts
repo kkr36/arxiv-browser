@@ -53,8 +53,12 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
   if (bibLines.length === 0) return null;
 
   const groups = groupLinesIntoEntries(bibLines);
+  const numberedGroups = groups.filter(groupStartsWithNumber);
+  // In numbered bibliographies, any unnumbered groups after the final entry
+  // are almost always later sections/captions that follow the references.
+  const referenceGroups = numberedGroups.length >= 2 ? numberedGroups : groups;
 
-  const entries: BibEntry[] = groups
+  const entries: BibEntry[] = referenceGroups
     .map((lines, index) => buildEntry(lines, index))
     .filter((e) => e.rawText.length > 8);
 
@@ -65,6 +69,11 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
     endPage: stopLine?.page ?? null,
     endOffset: stopLine?.start ?? null,
   };
+}
+
+function groupStartsWithNumber(lines: PageLine[]): boolean {
+  const first = lines[0]?.text.trim() ?? "";
+  return BRACKET_NUMBER_RE.test(first) || DOTTED_NUMBER_RE.test(first);
 }
 
 const COLUMN_X_JUMP = 100;

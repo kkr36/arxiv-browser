@@ -6,6 +6,7 @@ import "./citationsPanel.css";
 interface CitationsPanelProps {
   entries: BibEntry[];
   markersByPage: Map<number, CitationMarker[]>;
+  onFindReferences: (entryIndex: number) => void;
   /** Same handler as clicking an in-text marker: open the resolved paper. */
   onOpenPaper: (paper: ResolvedPaper) => void;
   onClose: () => void;
@@ -22,7 +23,13 @@ function initialWidth(): number {
 /** Per-entry click feedback; resolution itself is cached in citationService. */
 type ItemStatus = { kind: "resolving" } | { kind: "no-match" } | { kind: "error"; message: string };
 
-export function CitationsPanel({ entries, markersByPage, onOpenPaper, onClose }: CitationsPanelProps) {
+export function CitationsPanel({
+  entries,
+  markersByPage,
+  onFindReferences,
+  onOpenPaper,
+  onClose,
+}: CitationsPanelProps) {
   const [width, setWidth] = useState(initialWidth);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<Map<number, ItemStatus>>(new Map());
@@ -157,12 +164,24 @@ export function CitationsPanel({ entries, markersByPage, onOpenPaper, onClose }:
                     </span>
                   )}
                   <button
-                    className="cites-item-open"
+                    className="cites-item-action"
+                    onClick={() => onFindReferences(entry.index)}
+                    disabled={count === 0}
+                    title={
+                      count > 0
+                        ? "Find all in-text citations for this reference"
+                        : "No in-text citations matched this reference"
+                    }
+                  >
+                    Find
+                  </button>
+                  <button
+                    className="cites-item-action"
                     onClick={() => handleOpen(entry.index)}
                     disabled={itemStatus?.kind === "resolving"}
-                    title="Open this paper"
+                    title="Open this paper's PDF"
                   >
-                    {itemStatus?.kind === "resolving" ? "…" : "↗"}
+                    {itemStatus?.kind === "resolving" ? "..." : "PDF"}
                   </button>
                 </div>
                 {itemStatus?.kind === "no-match" && (
