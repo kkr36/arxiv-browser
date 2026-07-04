@@ -1,0 +1,100 @@
+import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
+import { extractAllPageText } from "./pdf/extractText";
+import { parseBibliography } from "./citations/parseBibliography";
+import { detectMarkersOnPage, type ExcludedRange } from "./citations/detectMarkers";
+import { matchMarkersToEntries } from "./citations/matchMarkersToEntries";
+import { matchPaperByReferenceText } from "./semanticScholar/client";
+import { toResolvedPaper } from "./semanticScholar/resolvePaper";
+import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "./types";
+
+export interface CitationData {
+  pages: PageText[];
+  entries: BibEntry[];
+  markersByPage: Map<number, CitationMarker[]>;
+}
+
+export async function buildCitationData(doc: PDFDocumentProxy): Promise<CitationData> {
+  const pages = await extractAllPageText(doc);
+  const bibliography = parseBibliography(pages);
+  const entries = bibliography?.entries ?? [];
+
+  const markersByPage = new Map<number, CitationMarker[]>();
+  for (const page of pages) {
+    // Exclude the bibliography itself from marker detection (its entry
+    // numbers and page ranges would otherwise match as in-text citations),
+    // but resume afterwards — appendices routinely cite works too.
+    let exclude: ExcludedRange | undefined;
+    if (bibliography) {
+      const { headingPage, headingStart, endPage, endOffset } = bibliography;
+      const inBibRange =
+        page.pageNumber >= headingPage && (endPage === null || page.pageNumber <= endPage);
+      if (inBibRange) {
+        exclude = {
+          start: page.pageNumber === headingPage ? headingStart : 0,
+          end: endPage !== null && page.pageNumber === endPage ? (endOffset ?? Infinity) : Infinity,
+        };
+      }
+    }
+
+    const raw = detectMarkersOnPage(page, exclude);
+    const matched = matchMarkersToEntries(raw, entries);
+    if (matched.length > 0) markersByPage.set(page.pageNumber, matched);
+  }
+
+  return { pages, entries, markersByPage };
+}
+
+const resolutionCache = new Map<number, Promise<ResolvedPaper | null>>();
+
+/** Clears the in-memory resolution cache; call when loading a new paper. */
+export function resetResolutionCache(): void {
+  resolutionCache.clear();
+}
+
+export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<ResolvedPaper | null> {
+  const cached = resolutionCache.get(entryIndex);
+  if (cached) return cached;
+
+  const entry = entries[entryIndex];
+  const promise = (async () => {
+    const cacheKey = `arxiv-browser:s2:${entry.rawText.slice(0, 120)}`;
+    const stored = safeLocalStorageGet(cacheKey);
+    if (stored) {
+      try {
+        return JSON.parse(stored) as ResolvedPaper;
+      } catch {
+        // corrupt cache entry; fall through and re-fetch
+      }
+    }
+
+    const s2 = await matchPaperByReferenceText(entry.rawText);
+    if (!s2) return null;
+
+    const resolved = toResolvedPaper(s2);
+    safeLocalStorageSet(cacheKey, JSON.stringify(resolved));
+    return resolved;
+  })();
+
+  resolutionCache.set(entryIndex, promise);
+  // A rejection is transient (rate limit, network) — evict it so the next
+  // hover retries instead of showing a failure for the rest of the session.
+  // A resolved `null` is a genuine no-match and stays cached.
+  promise.catch(() => resolutionCache.delete(entryIndex));
+  return promise;
+}
+
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage full/unavailable; caching is a nice-to-have, not required
+  }
+}

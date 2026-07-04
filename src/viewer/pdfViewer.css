@@ -1,0 +1,115 @@
+.pdf-viewer-scroll {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 80px;
+}
+
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.pdf-page {
+  position: relative;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: white;
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+
+.textLayer > span,
+.textLayer > br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer ::selection {
+  background: rgba(0, 100, 255, 0.3);
+}
+
+.textLayer span.has-citation-mark {
+  z-index: 5;
+}
+
+.citation-mark {
+  background: rgba(255, 196, 0, 0.35);
+  border-radius: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.citation-mark:hover,
+.citation-mark:focus-visible {
+  background: rgba(255, 150, 0, 0.55);
+  outline: none;
+}
+
+.citation-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 320px;
+  background: #1f1f24;
+  color: #eee;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.citation-tooltip-loading {
+  opacity: 0.8;
+}
+
+.citation-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.citation-tooltip-meta {
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.citation-tooltip-abstract {
+  opacity: 0.9;
+  max-height: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+
+.citation-tooltip-raw {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.citation-tooltip-footer {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.6;
+}
