@@ -5,8 +5,10 @@ import type { BibEntry, PageText } from "../types";
 // small-caps headings ("R E F E R E N C E S") and "7. References" both match.
 const COMPACT_HEADING_RE = /^\d{0,2}(references|bibliography)$/;
 const STOP_RE = /^([A-Z0-9]{1,3}[.\s:]+)?(appendix|acknowledg(e)?ments?|supplementary material)\b/i;
+const RUNNING_HEADER_RE = /^published as\s+/i;
 const BRACKET_NUMBER_RE = /^\[(\d+)\]\s*/;
 const DOTTED_NUMBER_RE = /^(\d{1,3})\.\s+(?=[A-Z(])/;
+const AUTHOR_YEAR_ENTRY_RE = /^[\p{Lu}][\p{L}\p{M}'’-]+,\s*(?:[\p{Lu}]\.[\s-]*)+/u;
 
 export interface BibliographyParseResult {
   entries: BibEntry[];
@@ -49,7 +51,10 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
     .filter((l) => l.text.trim().length > 0)
     // Bare page numbers between entries would otherwise be glued into
     // whichever entry spans the page break.
-    .filter((l) => !/^\d{1,4}$/.test(l.text.trim()));
+    .filter((l) => !/^\d{1,4}$/.test(l.text.trim()))
+    // Repeated conference/journal running heads can appear inside the
+    // extracted reference stream at page breaks.
+    .filter((l) => !RUNNING_HEADER_RE.test(l.text.trim()));
   if (bibLines.length === 0) return null;
 
   const groups = groupLinesIntoEntries(bibLines);
@@ -94,10 +99,15 @@ function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.text.trim();
-    const numberedStart = BRACKET_NUMBER_RE.test(trimmed) || DOTTED_NUMBER_RE.test(trimmed);
+    const continuesHyphenatedWord = !!prev?.text.trim().endsWith("-");
+    const explicitStart =
+      !continuesHyphenatedWord &&
+      (BRACKET_NUMBER_RE.test(trimmed) ||
+        DOTTED_NUMBER_RE.test(trimmed) ||
+        AUTHOR_YEAR_ENTRY_RE.test(trimmed));
 
     let isNewEntry: boolean;
-    if (numberedStart) {
+    if (explicitStart) {
       isNewEntry = true;
     } else if (!prev) {
       isNewEntry = true;

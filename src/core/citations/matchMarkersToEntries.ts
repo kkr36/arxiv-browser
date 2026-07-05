@@ -2,7 +2,15 @@ import type { RawMarker } from "./detectMarkers";
 import type { BibEntry, CitationMarker } from "../types";
 
 function keyOf(surname: string, year: string): string {
-  return `${surname.toLowerCase()}|${year.toLowerCase()}`;
+  return `${normalizeSurname(surname)}|${year.toLowerCase()}`;
+}
+
+function normalizeSurname(surname: string): string {
+  return surname
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}0-9]+/gu, "")
+    .toLowerCase();
 }
 
 /**

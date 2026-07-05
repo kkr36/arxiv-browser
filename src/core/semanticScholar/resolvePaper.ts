@@ -3,19 +3,21 @@ import type { S2Paper } from "./client";
 
 /**
  * Picks the best link for "the actual PDF of the cited paper": an
- * open-access PDF URL from Semantic Scholar if it has one, else a
- * constructed arXiv PDF link if the paper is on arXiv, else (last resort)
- * the Semantic Scholar page itself.
+ * arXiv PDF if Semantic Scholar knows one, else a usable open-access PDF URL,
+ * else (last resort) the Semantic Scholar page itself. arXiv is preferred
+ * over publisher-hosted PDF URLs because local proxy/browser-extension fetches
+ * can be blocked by bot protection even when the URL is "open access".
  */
 export function toResolvedPaper(p: S2Paper): ResolvedPaper {
   const arxivId = p.externalIds?.ArXiv;
   const directPdf = p.openAccessPdf?.url || undefined;
   const arxivPdf = arxivId ? `https://arxiv.org/pdf/${arxivId}.pdf` : undefined;
-  const pdfUrl = directPdf ?? arxivPdf;
+  const usableDirectPdf = directPdf && !isLikelyProxyHostilePdfUrl(directPdf) ? directPdf : undefined;
+  const pdfUrl = arxivPdf ?? usableDirectPdf;
 
   let source: ResolvedPaper["source"] = "none";
-  if (directPdf) source = "direct-pdf";
-  else if (arxivPdf) source = "arxiv";
+  if (arxivPdf) source = "arxiv";
+  else if (usableDirectPdf) source = "direct-pdf";
   else if (p.url) source = "semantic-scholar-page";
 
   return {
@@ -28,4 +30,21 @@ export function toResolvedPaper(p: S2Paper): ResolvedPaper {
     semanticScholarUrl: p.url,
     source,
   };
+}
+
+export function isLikelyProxyHostilePdfUrl(url: string): boolean {
+  try {
+    const { hostname, pathname } = new URL(url);
+    const host = hostname.toLowerCase();
+    const path = pathname.toLowerCase();
+    return (
+      (host === "dl.acm.org" && path.startsWith("/doi/pdf/")) ||
+      host.endsWith("ieee.org") ||
+      host.endsWith("sciencedirect.com") ||
+      host.endsWith("springer.com") ||
+      host.endsWith("wiley.com")
+    );
+  } catch {
+    return false;
+  }
 }

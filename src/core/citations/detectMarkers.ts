@@ -1,8 +1,14 @@
 import type { CitationMarker, PageText } from "../types";
 
-const NUMBERED_MARKER_RE = /\[(\d+(?:\s*[-–,]\s*\d+)*)\]/g;
-const AUTHOR_YEAR_RE =
-  /\(([A-Z][A-Za-z'\-]+(?:\s+(?:et al\.?|and|&)\s+[A-Za-z'\-]+)*,?\s*(?:19|20)\d{2}[a-z]?(?:;\s*[A-Z][A-Za-z'\-]+(?:\s+(?:et al\.?|and|&)\s+[A-Za-z'\-]+)*,?\s*(?:19|20)\d{2}[a-z]?)*)\)/g;
+const NUMBERED_MARKER_RE = /\[\s*(\d+(?:\s*[-–,]\s*\d+)*)\s*\]/g;
+const NUMBERED_TOKEN_RE = /(\d+)(?:\s*[-–]\s*(\d+))?/g;
+const BRACKET_AUTHOR_YEAR_RE = /\[([^[\]]{0,450}(?:19|20)\d{2}[a-z]?[^[\]]*)\]/g;
+const PAREN_AUTHOR_YEAR_RE = /\(([^()]{0,450}(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
+const AUTHOR_YEAR_SURNAME = String.raw`[\p{Lu}][\p{L}\p{M}'’-]+(?:-\s*[\p{L}\p{M}'’-]+)?`;
+const AUTHOR_YEAR_PAIR_RE = new RegExp(
+  String.raw`(${AUTHOR_YEAR_SURNAME})(?:\s+(?:et\s+al\.?|(?:and|&)\s+[^,;()]+))?,?\s+((?:19|20)\d{2}[a-z]?)`,
+  "gu",
+);
 // Narrative form: "Vaswani et al. (2017)", "Smith and Lee (2020)", "Smith (2020)".
 const NARRATIVE_RE =
   /\b([A-Z][A-Za-z'\-]+)(?:\s+(?:et al\.?|(?:and|&)\s+[A-Z][A-Za-z'\-]+))?\s*\(\s*((?:19|20)\d{2}[a-z]?)\s*\)/g;
@@ -15,33 +21,83 @@ export interface ExcludedRange {
   end: number;
 }
 
-function expandRefNumbers(raw: string): number[] {
-  const nums = new Set<number>();
-  for (const part of raw.split(",")) {
-    const rangeMatch = part.trim().match(/^(\d+)\s*[-–]\s*(\d+)$/);
-    if (rangeMatch) {
-      const from = Number(rangeMatch[1]);
-      const to = Number(rangeMatch[2]);
-      for (let n = from; n <= to && n - from < 200; n++) nums.add(n);
-    } else {
-      const n = Number(part.trim());
-      if (!Number.isNaN(n)) nums.add(n);
-    }
-  }
-  return [...nums].sort((a, b) => a - b);
+function expandRefRange(from: number, to: number): number[] {
+  const nums: number[] = [];
+  for (let n = from; n <= to && n - from < 200; n++) nums.push(n);
+  return nums;
 }
 
-/** "(Kingma and Ba, 2015; Loshchilov and Hutter, 2019)" → one pair per work. */
-function extractAuthorYears(group: string): { surname: string; year: string }[] {
-  const pairs: { surname: string; year: string }[] = [];
-  for (const part of group.split(";")) {
-    const surnameMatch = part.trim().match(/^([A-Z][A-Za-z'\-]+)/);
-    const yearMatch = part.match(/(19|20)\d{2}[a-z]?/);
-    if (surnameMatch && yearMatch) {
-      pairs.push({ surname: surnameMatch[1], year: yearMatch[0] });
+function numberedMarkers(
+  page: PageText,
+  match: RegExpExecArray,
+): RawMarker[] {
+  const markers: RawMarker[] = [];
+  const raw = match[0];
+  NUMBERED_TOKEN_RE.lastIndex = 0;
+  let token: RegExpExecArray | null;
+  while ((token = NUMBERED_TOKEN_RE.exec(raw))) {
+    const from = Number(token[1]);
+    const to = token[2] ? Number(token[2]) : from;
+    if (Number.isNaN(from) || Number.isNaN(to)) continue;
+    const tokenStart = match.index + token.index;
+    markers.push({
+      id: `p${page.pageNumber}-n${tokenStart}`,
+      page: page.pageNumber,
+      start: tokenStart,
+      end: tokenStart + token[0].length,
+      raw: token[2] ? token[0] : `[${from}]`,
+      refNumbers: from <= to ? expandRefRange(from, to) : [from],
+    });
+  }
+  return markers;
+}
+
+/**
+ * "(Kingma and Ba, 2015; see Loshchilov and Hutter, 2019)" -> one marker per
+ * cited work, with each marker spanning the author/year fragment it matched.
+ */
+function authorYearMarkers(
+  page: PageText,
+  match: RegExpExecArray,
+): RawMarker[] {
+  const group = match[1];
+  const markers: RawMarker[] = [];
+  AUTHOR_YEAR_PAIR_RE.lastIndex = 0;
+  let pair: RegExpExecArray | null;
+  while ((pair = AUTHOR_YEAR_PAIR_RE.exec(group))) {
+    const start = match.index + 1 + pair.index;
+    const raw = pair[0].replace(/^[,;\s]+/, "").trim();
+    if (!raw) continue;
+    markers.push({
+      id: `p${page.pageNumber}-a${start}`,
+      page: page.pageNumber,
+      start,
+      end: start + pair[0].length,
+      raw,
+      authorYears: [{ surname: pair[1], year: pair[2] }],
+    });
+  }
+  return markers;
+}
+
+function overlapsExisting(markers: RawMarker[], start: number, end: number): boolean {
+  return markers.some((m) => {
+    if (m.refNumbers) return false;
+    return start < m.end && end > m.start;
+  });
+}
+
+function dedupeMarkers(markers: RawMarker[]): RawMarker[] {
+  const seen = new Set<string>();
+  const out: RawMarker[] = [];
+  for (const marker of markers) {
+    const key = `${marker.start}:${marker.end}:${marker.refNumbers?.join(",") ?? marker.authorYears?.map((ay) => `${ay.surname}|${ay.year}`).join(",")}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(marker);
     }
   }
-  return pairs;
+  return out;
 }
 
 /**
@@ -61,34 +117,25 @@ export function detectMarkersOnPage(page: PageText, exclude?: ExcludedRange): Ra
   NUMBERED_MARKER_RE.lastIndex = 0;
   while ((m = NUMBERED_MARKER_RE.exec(text))) {
     if (excluded(m.index)) continue;
-    markers.push({
-      id: `p${page.pageNumber}-n${m.index}`,
-      page: page.pageNumber,
-      start: m.index,
-      end: m.index + m[0].length,
-      raw: m[0],
-      refNumbers: expandRefNumbers(m[1]),
-    });
+    markers.push(...numberedMarkers(page, m));
   }
 
-  AUTHOR_YEAR_RE.lastIndex = 0;
-  while ((m = AUTHOR_YEAR_RE.exec(text))) {
+  BRACKET_AUTHOR_YEAR_RE.lastIndex = 0;
+  while ((m = BRACKET_AUTHOR_YEAR_RE.exec(text))) {
     if (excluded(m.index)) continue;
-    const authorYears = extractAuthorYears(m[1]);
-    if (authorYears.length === 0) continue;
-    markers.push({
-      id: `p${page.pageNumber}-a${m.index}`,
-      page: page.pageNumber,
-      start: m.index,
-      end: m.index + m[0].length,
-      raw: m[0],
-      authorYears,
-    });
+    markers.push(...authorYearMarkers(page, m));
+  }
+
+  PAREN_AUTHOR_YEAR_RE.lastIndex = 0;
+  while ((m = PAREN_AUTHOR_YEAR_RE.exec(text))) {
+    if (excluded(m.index)) continue;
+    markers.push(...authorYearMarkers(page, m));
   }
 
   NARRATIVE_RE.lastIndex = 0;
   while ((m = NARRATIVE_RE.exec(text))) {
     if (excluded(m.index)) continue;
+    if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
     markers.push({
       id: `p${page.pageNumber}-t${m.index}`,
       page: page.pageNumber,
@@ -99,5 +146,5 @@ export function detectMarkersOnPage(page: PageText, exclude?: ExcludedRange): Ra
     });
   }
 
-  return markers.sort((a, b) => a.start - b.start);
+  return dedupeMarkers(markers).sort((a, b) => a.start - b.start);
 }

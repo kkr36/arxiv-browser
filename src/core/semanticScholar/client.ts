@@ -106,7 +106,7 @@ export function extractDoi(rawText: string): string | null {
 // ending where the title's first word begins. Unicode classes so accented
 // names (Gallé, Trhlík) don't break the run.
 const PARTICLES = String.raw`(?:(?:van|von|der|den|de|del|della|da|di|dos|du|la|le|el|ter|ten|al)\s+)*`;
-const NAME_WORD = String.raw`\p{Lu}[\p{L}'’-]+`;
+const NAME_WORD = String.raw`\p{Lu}[\p{L}\p{M}'’-]+`;
 const SURNAME = String.raw`${PARTICLES}${NAME_WORD}(?:\s+${NAME_WORD})*?`;
 const INITIALS = String.raw`(?:\p{Lu}\.[\s-]*)+`;
 const ONE_AUTHOR = String.raw`(?:${SURNAME},\s*${INITIALS}|et\s+al\.?)`;
@@ -137,6 +137,13 @@ const TRAILING_VENUE_RE = new RegExp(
 const VENUE_SHAPED_RE =
   /^(in\s+(proceedings|findings|the\s|\d|international|advances)|proceedings of|arxiv preprint|advances in neural|https?:|url\s)/i;
 
+const ANY_AUTHOR_YEAR_TITLE_RE =
+  /\(\s*(?:19|20)\d{2}[a-z]?\s*\)\.?\s+(.+)|\b(?:19|20)\d{2}[a-z]?\.?\s+(.+)/;
+const LEADING_AUTHOR_YEAR_TITLE_RE = /^\s*\(?\s*(?:19|20)\d{2}[a-z]?\s*\)?\.?\s+(.+)/;
+const PAREN_YEAR_TITLE_RE = /\(\s*(?:19|20)\d{2}[a-z]?\s*\)\.?\s+(.+)/;
+const PARTIAL_AUTHOR_LIST_RE =
+  /^\s*(?:and\s+|&\s+|(?:van|von|de|del|da|di|dos|du|la|le|el|ter|ten)\b|[^,]{1,80},\s*(?:\p{Lu}\.|[^\s,]+))/u;
+
 /**
  * Pulls a probable title out of a raw bibliography entry. Two shapes are
  * handled: initials-style author lists ("Garg, S., Wu, Y., and Lipton, Z.
@@ -150,16 +157,28 @@ export function guessTitle(rawText: string): string | null {
   const text = rawText.trim();
   const block = text.match(AUTHOR_BLOCK_RE);
   const afterAuthors = block && block[0].length >= 8 ? text.slice(block[0].length) : null;
+  const partialAuthorYear =
+    afterAuthors !== null && PARTIAL_AUTHOR_LIST_RE.test(afterAuthors)
+      ? afterAuthors.match(PAREN_YEAR_TITLE_RE)
+      : null;
+  const afterYear =
+    afterAuthors !== null
+      ? (afterAuthors.match(LEADING_AUTHOR_YEAR_TITLE_RE) ?? partialAuthorYear)
+      : text.match(ANY_AUTHOR_YEAR_TITLE_RE);
 
   let candidate: string;
-  if (afterAuthors !== null) {
+  if (afterYear) {
+    candidate = afterYear[1] ?? afterYear[2] ?? "";
+  } else if (afterAuthors !== null) {
     candidate = afterAuthors;
   } else {
     const segments = text.split(SENTENCE_SPLIT_RE);
     candidate = segments.length > 1 ? segments[1] : segments[0];
   }
   // Author-year styles put the year before the title: "…Polosukhin. 2017. Title…"
-  candidate = candidate.trim().replace(/^(19|20)\d{2}[a-z]?\.\s*/, "");
+  candidate = candidate
+    .trim()
+    .replace(/^\(?\s*(?:19|20)\d{2}[a-z]?\s*\)?\.?\s*/, "");
   candidate = candidate.split(SENTENCE_SPLIT_RE)[0].trim();
   const venue = candidate.match(TRAILING_VENUE_RE);
   if (venue && venue.index !== undefined) candidate = candidate.slice(0, venue.index);

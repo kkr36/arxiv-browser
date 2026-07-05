@@ -8,7 +8,7 @@ import {
   guessTitle,
   matchPaperByReferenceText,
 } from "./semanticScholar/client";
-import { toResolvedPaper } from "./semanticScholar/resolvePaper";
+import { isLikelyProxyHostilePdfUrl, toResolvedPaper } from "./semanticScholar/resolvePaper";
 import { fetchArxivById, searchArxivByTitle } from "./arxiv/searchArxiv";
 import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "./types";
 
@@ -62,9 +62,9 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 
   const entry = entries[entryIndex];
   const promise = (async () => {
-    // v2: bumped when the resolution pipeline improved, so stale results
+    // v4: bumped when the resolution pipeline improved, so stale results
     // cached by the old (title-guess-only) logic get re-resolved.
-    const cacheKey = `arxiv-browser:s2v2:${entry.rawText.slice(0, 120)}`;
+    const cacheKey = `arxiv-browser:s2v4:${entry.rawText.slice(0, 120)}`;
     const stored = safeLocalStorageGet(cacheKey);
     if (stored) {
       try {
@@ -96,7 +96,30 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
  */
 async function resolveRawReference(rawText: string): Promise<ResolvedPaper | null> {
   const s2 = await matchPaperByReferenceText(rawText);
-  if (s2) return toResolvedPaper(s2);
+  if (s2) {
+    const resolved = toResolvedPaper(s2);
+    const directPdf = s2.openAccessPdf?.url;
+    if (
+      directPdf &&
+      isLikelyProxyHostilePdfUrl(directPdf) &&
+      resolved.source !== "arxiv"
+    ) {
+      const title = guessTitle(rawText);
+      const arxiv = title ? await searchArxivByTitle(title) : null;
+      if (arxiv?.pdfUrl) {
+        return {
+          ...resolved,
+          abstract: resolved.abstract ?? arxiv.abstract,
+          authors: resolved.authors.length > 0 ? resolved.authors : arxiv.authors,
+          year: resolved.year ?? arxiv.year,
+          venue: resolved.venue ?? arxiv.venue,
+          pdfUrl: arxiv.pdfUrl,
+          source: "arxiv",
+        };
+      }
+    }
+    return resolved;
+  }
 
   const arxivId = extractArxivId(rawText);
   if (arxivId) {
