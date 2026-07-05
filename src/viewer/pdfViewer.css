@@ -52,11 +52,15 @@
   background: rgba(0, 100, 255, 0.3);
 }
 
-.textLayer span.has-citation-mark {
+.citation-overlay-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   z-index: 5;
 }
 
 .citation-mark {
+  position: absolute;
   background: rgba(255, 196, 0, 0.35);
   border-radius: 2px;
   cursor: pointer;

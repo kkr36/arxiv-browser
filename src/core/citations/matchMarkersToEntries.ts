@@ -21,8 +21,11 @@ export function matchMarkersToEntries(markers: RawMarker[], entries: BibEntry[])
   const byNumber = new Map<number, number>();
   const byAuthorYear = new Map<string, number>();
   for (const e of entries) {
-    if (e.number !== undefined) byNumber.set(e.number, e.index);
-    if (e.authorYearKey) byAuthorYear.set(keyOf(e.authorYearKey.surname, e.authorYearKey.year), e.index);
+    if (e.number !== undefined && !byNumber.has(e.number)) byNumber.set(e.number, e.index);
+    if (e.authorYearKey) {
+      const key = keyOf(e.authorYearKey.surname, e.authorYearKey.year);
+      if (!byAuthorYear.has(key)) byAuthorYear.set(key, e.index);
+    }
   }
 
   return markers

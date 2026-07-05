@@ -5,10 +5,8 @@ const NUMBERED_TOKEN_RE = /(\d+)(?:\s*[-–]\s*(\d+))?/g;
 const BRACKET_AUTHOR_YEAR_RE = /\[([^[\]]{0,450}(?:19|20)\d{2}[a-z]?[^[\]]*)\]/g;
 const PAREN_AUTHOR_YEAR_RE = /\(([^()]{0,450}(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
 const AUTHOR_YEAR_SURNAME = String.raw`[\p{Lu}][\p{L}\p{M}'’-]+(?:-\s*[\p{L}\p{M}'’-]+)?`;
-const AUTHOR_YEAR_PAIR_RE = new RegExp(
-  String.raw`(${AUTHOR_YEAR_SURNAME})(?:\s+(?:et\s+al\.?|(?:and|&)\s+[^,;()]+))?,?\s+((?:19|20)\d{2}[a-z]?)`,
-  "gu",
-);
+const AUTHOR_YEAR_CAP_WORD_RE = new RegExp(AUTHOR_YEAR_SURNAME, "gu");
+const AUTHOR_YEAR_RE = /\b((?:19|20)\d{2}[a-z]?)/g;
 // Narrative form: "Vaswani et al. (2017)", "Smith and Lee (2020)", "Smith (2020)".
 const NARRATIVE_RE =
   /\b([A-Z][A-Za-z'\-]+)(?:\s+(?:et al\.?|(?:and|&)\s+[A-Z][A-Za-z'\-]+))?\s*\(\s*((?:19|20)\d{2}[a-z]?)\s*\)/g;
@@ -62,22 +60,59 @@ function authorYearMarkers(
 ): RawMarker[] {
   const group = match[1];
   const markers: RawMarker[] = [];
-  AUTHOR_YEAR_PAIR_RE.lastIndex = 0;
-  let pair: RegExpExecArray | null;
-  while ((pair = AUTHOR_YEAR_PAIR_RE.exec(group))) {
-    const start = match.index + 1 + pair.index;
-    const raw = pair[0].replace(/^[,;\s]+/, "").trim();
-    if (!raw) continue;
+  AUTHOR_YEAR_RE.lastIndex = 0;
+  let year: RegExpExecArray | null;
+  while ((year = AUTHOR_YEAR_RE.exec(group))) {
+    const fragmentStart = fragmentStartBeforeYear(group, year.index);
+    const trimmedStart = trimCitationPrefix(group, fragmentStart, year.index);
+    const surname = extractCitedSurname(group.slice(trimmedStart, year.index));
+    if (!surname) continue;
+
+    const start = match.index + 1 + trimmedStart;
+    const end = match.index + 1 + year.index + year[0].length;
+    const raw = group.slice(trimmedStart, year.index + year[0].length).trim();
     markers.push({
       id: `p${page.pageNumber}-a${start}`,
       page: page.pageNumber,
       start,
-      end: start + pair[0].length,
+      end,
       raw,
-      authorYears: [{ surname: pair[1], year: pair[2] }],
+      authorYears: [{ surname, year: year[1] }],
     });
   }
   return markers;
+}
+
+function fragmentStartBeforeYear(group: string, yearIndex: number): number {
+  const semicolon = group.lastIndexOf(";", yearIndex);
+  return semicolon === -1 ? 0 : semicolon + 1;
+}
+
+function trimCitationPrefix(group: string, start: number, end: number): number {
+  const leading = group.slice(start, end).match(/^[,;\s]*(?:(?:see|also|e\.g\.|cf\.)\s+)*/i);
+  return start + (leading?.[0].length ?? 0);
+}
+
+function extractCitedSurname(text: string): string | null {
+  const cleaned = text.trim().replace(/[,;\s]+$/, "");
+  if (!cleaned) return null;
+
+  const etAl = cleaned.match(new RegExp(`(${AUTHOR_YEAR_SURNAME})\\s+et\\s+al\\.?`, "u"));
+  if (etAl) return etAl[1];
+
+  const firstComma = cleaned.indexOf(",");
+  const restAfterComma = firstComma === -1 ? "" : cleaned.slice(firstComma + 1);
+  AUTHOR_YEAR_CAP_WORD_RE.lastIndex = 0;
+  const authorText =
+    firstComma !== -1 && AUTHOR_YEAR_CAP_WORD_RE.test(restAfterComma)
+      ? cleaned.slice(0, firstComma)
+      : cleaned;
+  AUTHOR_YEAR_CAP_WORD_RE.lastIndex = 0;
+
+  const conjunction = authorText.search(/\s+(?:and|&)\s+/);
+  const firstAuthor = conjunction === -1 ? authorText : authorText.slice(0, conjunction);
+  const words = [...firstAuthor.matchAll(AUTHOR_YEAR_CAP_WORD_RE)].map((m) => m[0]);
+  return words.at(-1) ?? null;
 }
 
 function overlapsExisting(markers: RawMarker[], start: number, end: number): boolean {

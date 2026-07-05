@@ -145,7 +145,7 @@ export function PdfViewer({
         if (isStale()) return;
 
         const markers = markersByPage.get(pageText.pageNumber) ?? [];
-        applyCitationOverlay(textLayer.textDivs, pageText.items, markers);
+        applyCitationOverlay(textLayerDiv, textLayer.textDivs, pageText.items, markers);
       }
       if (!isStale()) setRenderVersion((v) => v + 1);
     })().catch((err) => {
@@ -219,7 +219,12 @@ export function PdfViewer({
       const found = findMarker(e.target);
       if (!found) return;
       const related = e.relatedTarget;
-      if (related instanceof HTMLElement && related.closest(".citation-mark") === found.el) return;
+      if (
+        related instanceof HTMLElement &&
+        related.closest<HTMLElement>(".citation-mark")?.dataset.markerId === found.marker.id
+      ) {
+        return;
+      }
       if (related instanceof HTMLElement && related.closest(".citation-tooltip")) return;
       scheduleTooltipHide(found.marker.id);
     };
