@@ -29,10 +29,15 @@ export function buildGraphExportHtml(graph: ExplorationGraph): string {
     .map((n) => {
       const p = layout.positions.get(n.id);
       if (!p) return "";
-      const classes = ["node", n.kind === "external" ? "external" : "", roots.has(n.id) ? "root" : ""]
+      const classes = [
+        "node",
+        n.kind === "external" ? "external" : "",
+        n.kind === "author" ? "author" : "",
+        roots.has(n.id) ? "root" : "",
+      ]
         .filter(Boolean)
         .join(" ");
-      const link = n.pdfUrl ?? n.semanticScholarUrl;
+      const link = n.pdfUrl ?? n.semanticScholarUrl ?? n.googleScholarUrl;
       return [
         `<g class="${classes}" data-id="${esc(n.id)}" transform="translate(${p.x},${p.y})"${link ? ` tabindex="0" role="link"` : ""}>`,
         `<rect class="node-box" width="${NODE_W}" height="${NODE_H}" rx="7"/>`,
@@ -54,6 +59,8 @@ export function buildGraphExportHtml(graph: ExplorationGraph): string {
       abstract: n.abstract ?? null,
       pdfUrl: n.pdfUrl ?? null,
       semanticScholarUrl: n.semanticScholarUrl ?? null,
+      googleScholarUrl: n.googleScholarUrl ?? null,
+      kind: n.kind,
     };
   }
   // <-escape so no "</script>" inside a title can terminate the script block.
@@ -121,7 +128,7 @@ export function buildGraphExportHtml(graph: ExplorationGraph): string {
 <body>
 <header>
   <h1>Paper exploration graph</h1>
-  <p>Exported ${esc(date)} · ${graph.nodes.length} papers · green bar = opened directly · dashed = no PDF (opens on Semantic Scholar)</p>
+  <p>Exported ${esc(date)} · ${graph.nodes.length} nodes · green bar = opened directly · dashed = no PDF</p>
 </header>
 <div class="canvas">
 <svg width="${Math.max(layout.width, 1)}" height="${Math.max(layout.height, 1)}" viewBox="0 0 ${Math.max(layout.width, 1)} ${Math.max(layout.height, 1)}">
@@ -157,7 +164,7 @@ ${nodeMarkup}
   }
 
   function openPaper(paper) {
-    var href = paper.pdfUrl || paper.semanticScholarUrl;
+    var href = paper.pdfUrl || paper.semanticScholarUrl || paper.googleScholarUrl;
     if (href) window.open(href, "_blank", "noopener");
   }
 
@@ -171,7 +178,9 @@ ${nodeMarkup}
     fields.m.hidden = !meta;
     fields.a.textContent = paper.abstract || "";
     fields.a.hidden = !paper.abstract;
-    fields.f.textContent = paper.pdfUrl
+    fields.f.textContent = paper.kind === "author"
+      ? "Click to open the author profile"
+      : paper.pdfUrl
       ? "Click to open the PDF in a new tab"
       : paper.semanticScholarUrl
         ? "Click to open on Semantic Scholar"
@@ -205,6 +214,11 @@ ${nodeMarkup}
 
 function metaLine(n: GraphNode): string {
   const bits: string[] = [];
+  if (n.kind === "author") {
+    bits.push("author");
+    if (n.paperCount !== undefined) bits.push(`${n.paperCount} works`);
+    return bits.join(" · ");
+  }
   if (n.year) bits.push(String(n.year));
   if (n.authors?.length) {
     bits.push(truncate(n.authors[0], 16) + (n.authors.length > 1 ? " et al." : ""));

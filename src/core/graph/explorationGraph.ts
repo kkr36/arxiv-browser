@@ -1,4 +1,4 @@
-import type { ResolvedPaper } from "../types";
+import type { ResolvedAuthorPage, ResolvedPaper } from "../types";
 
 export interface GraphNode {
   id: string;
@@ -12,7 +12,13 @@ export interface GraphNode {
   venue?: string;
   abstract?: string;
   /** "external" papers had no fetchable PDF — they open on Semantic Scholar in a new tab. */
-  kind: "pdf" | "external";
+  kind: "pdf" | "external" | "author";
+  source?: "google-scholar" | "semantic-scholar";
+  googleScholarUrl?: string;
+  homepage?: string;
+  paperCount?: number;
+  citationCount?: number;
+  hIndex?: number;
 }
 
 export interface GraphEdge {
@@ -48,6 +54,26 @@ export function nodeFromPaper(paper: ResolvedPaper): GraphNode {
     venue: paper.venue,
     abstract: paper.abstract,
     kind: paper.pdfUrl ? "pdf" : "external",
+  };
+}
+
+export function nodeIdForAuthor(author: ResolvedAuthorPage): string {
+  return author.id;
+}
+
+export function nodeFromAuthor(author: ResolvedAuthorPage): GraphNode {
+  return {
+    id: nodeIdForAuthor(author),
+    title: author.name,
+    address: author.url ?? author.googleScholarUrl ?? author.semanticScholarUrl,
+    semanticScholarUrl: author.semanticScholarUrl,
+    kind: "author",
+    source: author.source,
+    googleScholarUrl: author.googleScholarUrl,
+    homepage: author.homepage,
+    paperCount: author.paperCount,
+    citationCount: author.citationCount,
+    hIndex: author.hIndex,
   };
 }
 
@@ -125,7 +151,18 @@ function mergeNodes(existing: GraphNode, incoming: GraphNode): GraphNode {
     year: existing.year ?? incoming.year,
     venue: existing.venue ?? incoming.venue,
     abstract: existing.abstract ?? incoming.abstract,
-    kind: existing.kind === "pdf" || incoming.kind === "pdf" ? "pdf" : "external",
+    source: existing.source ?? incoming.source,
+    googleScholarUrl: existing.googleScholarUrl ?? incoming.googleScholarUrl,
+    homepage: existing.homepage ?? incoming.homepage,
+    paperCount: existing.paperCount ?? incoming.paperCount,
+    citationCount: existing.citationCount ?? incoming.citationCount,
+    hIndex: existing.hIndex ?? incoming.hIndex,
+    kind:
+      existing.kind === "pdf" || incoming.kind === "pdf"
+        ? "pdf"
+        : existing.kind === "author" || incoming.kind === "author"
+          ? "author"
+          : "external",
   };
 }
 

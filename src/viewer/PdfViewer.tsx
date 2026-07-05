@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { TextLayer } from "pdfjs-dist";
 import type { PDFDocumentProxy, TextContent } from "pdfjs-dist/types/src/display/api";
-import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "../core/types";
+import type {
+  AuthorMarker,
+  AuthorProfileRef,
+  BibEntry,
+  CitationMarker,
+  PageText,
+  ResolvedPaper,
+} from "../core/types";
 import { resolveEntry } from "../core/citationService";
 import { guessTitle } from "../core/semanticScholar/client";
 import { findPublicPdf, paperWithFoundPdf } from "../core/webPdfSearch";
@@ -13,10 +20,12 @@ interface PdfViewerProps {
   doc: PDFDocumentProxy;
   pages: PageText[];
   markersByPage: Map<number, CitationMarker[]>;
+  authorMarkersByPage?: Map<number, AuthorMarker[]>;
   entries: BibEntry[];
   focusedEntryIndex: number | null;
   /** Called with the resolved paper when a citation marker is clicked. */
   onOpenPaper: (paper: ResolvedPaper) => void;
+  onOpenAuthor?: (author: AuthorProfileRef) => void;
 }
 
 interface TooltipState {
@@ -37,13 +46,16 @@ export function PdfViewer({
   doc,
   pages,
   markersByPage,
+  authorMarkersByPage = new Map(),
   entries,
   focusedEntryIndex,
   onOpenPaper,
+  onOpenAuthor,
 }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markerLookupRef = useRef(new Map<string, CitationMarker>());
+  const authorMarkerLookupRef = useRef(new Map<string, AuthorMarker>());
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderRunRef = useRef(0);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -80,6 +92,14 @@ export function PdfViewer({
     }
     markerLookupRef.current = lookup;
   }, [markersByPage]);
+
+  useEffect(() => {
+    const lookup = new Map<string, AuthorMarker>();
+    for (const markers of authorMarkersByPage.values()) {
+      for (const m of markers) lookup.set(m.id, m);
+    }
+    authorMarkerLookupRef.current = lookup;
+  }, [authorMarkersByPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +165,13 @@ export function PdfViewer({
         if (isStale()) return;
 
         const markers = markersByPage.get(pageText.pageNumber) ?? [];
-        applyCitationOverlay(textLayerDiv, textLayer.textDivs, pageText.items, markers);
+        applyCitationOverlay(
+          textLayerDiv,
+          textLayer.textDivs,
+          pageText.items,
+          markers,
+          authorMarkersByPage.get(pageText.pageNumber) ?? [],
+        );
       }
       if (!isStale()) setRenderVersion((v) => v + 1);
     })().catch((err) => {
@@ -155,7 +181,7 @@ export function PdfViewer({
     return () => {
       cancelled = true;
     };
-  }, [doc, pages, markersByPage]);
+  }, [doc, pages, markersByPage, authorMarkersByPage]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -188,6 +214,16 @@ export function PdfViewer({
       const el = target.closest<HTMLElement>(".citation-mark");
       if (!el?.dataset.markerId) return null;
       const marker = markerLookupRef.current.get(el.dataset.markerId);
+      return marker ? { marker, el } : null;
+    };
+
+    const findAuthorMarker = (
+      target: EventTarget | null,
+    ): { marker: AuthorMarker; el: HTMLElement } | null => {
+      if (!(target instanceof HTMLElement)) return null;
+      const el = target.closest<HTMLElement>(".author-mark");
+      if (!el?.dataset.authorMarkerId) return null;
+      const marker = authorMarkerLookupRef.current.get(el.dataset.authorMarkerId);
       return marker ? { marker, el } : null;
     };
 
@@ -230,6 +266,14 @@ export function PdfViewer({
     };
 
     const handleClick = (e: MouseEvent) => {
+      const foundAuthor = findAuthorMarker(e.target);
+      if (foundAuthor) {
+        e.preventDefault();
+        cancelTooltipHide();
+        setTooltip(null);
+        onOpenAuthor?.(foundAuthor.marker.author);
+        return;
+      }
       const found = findMarker(e.target);
       if (!found) return;
       e.preventDefault();
@@ -266,7 +310,7 @@ export function PdfViewer({
       container.removeEventListener("mouseout", handleOut);
       container.removeEventListener("click", handleClick);
     };
-  }, [entries, onOpenPaper]);
+  }, [entries, onOpenPaper, onOpenAuthor]);
 
   function handleSearchPublicPdf(marker: CitationMarker, paper?: ResolvedPaper | null) {
     const entry = entries[marker.entryIndices[0]];

@@ -59,17 +59,32 @@
   z-index: 5;
 }
 
-.citation-mark {
+.citation-mark,
+.author-mark {
   position: absolute;
-  background: rgba(255, 196, 0, 0.35);
   border-radius: 2px;
   cursor: pointer;
   pointer-events: auto;
 }
 
+.citation-mark {
+  background: rgba(255, 196, 0, 0.35);
+}
+
+.author-mark {
+  background: rgba(90, 214, 160, 0.35);
+  box-shadow: inset 0 -1px 0 rgba(90, 214, 160, 0.65);
+}
+
 .citation-mark:hover,
 .citation-mark:focus-visible {
   background: rgba(255, 150, 0, 0.55);
+  outline: none;
+}
+
+.author-mark:hover,
+.author-mark:focus-visible {
+  background: rgba(90, 214, 160, 0.58);
   outline: none;
 }
 

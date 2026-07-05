@@ -109,6 +109,15 @@
   stroke-dasharray: 4 3;
 }
 
+.graph-node.author .graph-node-box {
+  stroke: rgba(90, 214, 160, 0.45);
+}
+
+.graph-node.author.current .graph-node-box {
+  fill: rgba(90, 214, 160, 0.12);
+  stroke: #5ad6a0;
+}
+
 .graph-node-rootbar {
   fill: #199e70;
 }

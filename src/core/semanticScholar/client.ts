@@ -2,6 +2,8 @@ import { fetchJson, type JsonResponse } from "../net/fetchJson";
 
 export interface S2Author {
   name: string;
+  authorId?: string;
+  url?: string;
 }
 
 export interface S2Paper {
@@ -15,12 +17,29 @@ export interface S2Paper {
   openAccessPdf?: { url: string } | null;
 }
 
+export interface S2AuthorProfile {
+  authorId: string;
+  name: string;
+  url?: string;
+  homepage?: string | null;
+  paperCount?: number | null;
+  citationCount?: number | null;
+  hIndex?: number | null;
+  papers?: S2Paper[];
+}
+
 interface S2SearchResponse {
   data?: S2Paper[];
 }
 
+interface S2AuthorSearchResponse {
+  data?: S2AuthorProfile[];
+}
+
 const BASE = "https://api.semanticscholar.org/graph/v1";
 const FIELDS = "title,abstract,authors,year,venue,url,externalIds,openAccessPdf";
+const AUTHOR_FIELDS =
+  "authorId,name,url,homepage,paperCount,citationCount,hIndex,papers.title,papers.abstract,papers.authors,papers.year,papers.venue,papers.url,papers.externalIds,papers.openAccessPdf";
 
 /** Thrown when Semantic Scholar keeps returning 429 after retries. */
 export class S2RateLimitError extends Error {
@@ -77,6 +96,23 @@ export async function getPaperByArxivId(arxivId: string): Promise<S2Paper | null
 export async function getPaperByDoi(doi: string): Promise<S2Paper | null> {
   const res = await s2Fetch<S2Paper>(`${BASE}/paper/DOI:${encodeURIComponent(doi)}?fields=${FIELDS}`);
   return res.data?.title ? res.data : null;
+}
+
+export async function getAuthorById(authorId: string): Promise<S2AuthorProfile | null> {
+  const res = await s2Fetch<S2AuthorProfile>(
+    `${BASE}/author/${encodeURIComponent(authorId)}?fields=${AUTHOR_FIELDS}`,
+  );
+  return res.data?.name ? res.data : null;
+}
+
+export async function searchAuthorByName(name: string): Promise<S2AuthorProfile | null> {
+  const clean = name.replace(/\s+/g, " ").trim();
+  if (clean.length < 3) return null;
+  const res = await s2Fetch<S2AuthorSearchResponse>(
+    `${BASE}/author/search?query=${encodeURIComponent(clean)}&limit=1&fields=authorId,name,url,paperCount,citationCount,hIndex`,
+  );
+  const author = res.data?.data?.[0];
+  return author?.authorId ? getAuthorById(author.authorId) : author ?? null;
 }
 
 function cleanQuery(rawText: string): string {

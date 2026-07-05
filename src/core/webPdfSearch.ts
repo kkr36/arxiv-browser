@@ -46,6 +46,7 @@ export function paperWithFoundPdf(
     title: base?.title ?? result.title ?? fallbackTitle,
     abstract: base?.abstract,
     authors: base?.authors ?? [],
+    authorProfiles: base?.authorProfiles,
     year: base?.year,
     venue: base?.venue,
     semanticScholarUrl: base?.semanticScholarUrl,

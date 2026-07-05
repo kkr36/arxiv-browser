@@ -36,10 +36,52 @@ export interface CitationMarker {
   entryIndices: number[];
 }
 
+export interface AuthorProfileRef {
+  name: string;
+  semanticScholarAuthorId?: string;
+  semanticScholarUrl?: string;
+  googleScholarUrl?: string;
+}
+
+export interface AuthorMarker {
+  id: string;
+  page: number;
+  start: number;
+  end: number;
+  raw: string;
+  author: AuthorProfileRef;
+}
+
+export interface AuthorWork {
+  title: string;
+  authors?: string[];
+  year?: number;
+  venue?: string;
+  abstract?: string;
+  pdfUrl?: string;
+  semanticScholarUrl?: string;
+  rawText?: string;
+}
+
+export interface ResolvedAuthorPage {
+  id: string;
+  name: string;
+  source: "google-scholar" | "semantic-scholar";
+  url?: string;
+  googleScholarUrl?: string;
+  semanticScholarUrl?: string;
+  homepage?: string;
+  paperCount?: number;
+  citationCount?: number;
+  hIndex?: number;
+  works: AuthorWork[];
+}
+
 export interface ResolvedPaper {
   title: string;
   abstract?: string;
   authors: string[];
+  authorProfiles?: AuthorProfileRef[];
   year?: number;
   venue?: string;
   pdfUrl?: string;

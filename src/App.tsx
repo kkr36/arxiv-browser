@@ -4,12 +4,19 @@ import { fetchPdfBytes } from "./core/net/fetchPdfBytes";
 import { resolveInputToPdfUrl } from "./core/resolveInput";
 import { loadPdfDocument } from "./core/pdf/loadPdf";
 import { buildCitationData, resetResolutionCache, type CitationData } from "./core/citationService";
+import { detectAuthorMarkers } from "./core/authors/detectAuthorMarkers";
+import {
+  looksLikeAuthorUrl,
+  resolveAuthorInput,
+  resolveAuthorRef,
+} from "./core/authors/resolveAuthor";
 import { getPaperByArxivId } from "./core/semanticScholar/client";
 import { toResolvedPaper } from "./core/semanticScholar/resolvePaper";
-import type { ResolvedPaper } from "./core/types";
+import type { AuthorMarker, AuthorProfileRef, ResolvedAuthorPage, ResolvedPaper } from "./core/types";
 import {
   EMPTY_GRAPH,
   addPaperNode,
+  nodeFromAuthor,
   nodeFromPaper,
   nodeIdForPaper,
   removeNode,
@@ -18,21 +25,35 @@ import {
   type GraphNode,
 } from "./core/graph/explorationGraph";
 import { PdfViewer } from "./viewer/PdfViewer";
+import { AuthorPageView } from "./viewer/AuthorPageView";
 import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
 import "./app.css";
 
 interface PaperView {
+  kind: "paper";
   doc: PDFDocumentProxy;
   citations: CitationData;
+  authorMarkersByPage: Map<number, AuthorMarker[]>;
   label: string;
 }
 
+interface AuthorView {
+  kind: "author";
+  author: ResolvedAuthorPage;
+  label: string;
+}
+
+type MainView = PaperView | AuthorView;
+
 interface HistoryEntry {
+  kind: "paper" | "author";
   /** Master copy of the PDF — pdf.js transfers (detaches) whatever buffer it
    * receives, so loads always get a `.slice(0)` and this copy stays usable
    * for back/forward. */
-  bytes: ArrayBuffer;
+  bytes?: ArrayBuffer;
+  author?: ResolvedAuthorPage;
+  paper?: ResolvedPaper;
   label: string;
   /** Address-bar value for this entry: the PDF URL, or a file name for uploads. */
   address: string;
@@ -52,6 +73,7 @@ type Status =
 type OpenOrigin =
   | { kind: "root" }
   | { kind: "citation"; paper: ResolvedPaper; parentId: string | null }
+  | { kind: "author"; author: ResolvedAuthorPage; parentId: string | null }
   | { kind: "revisit"; nodeId: string };
 
 interface AppProps {
@@ -68,7 +90,7 @@ export default function App({
   onOpenedUrl,
 }: AppProps = {}) {
   const [input, setInput] = useState(initialInput);
-  const [view, setView] = useState<PaperView | null>(null);
+  const [view, setView] = useState<MainView | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [history, setHistory] = useState<{ entries: HistoryEntry[]; index: number }>({
     entries: [],
@@ -89,6 +111,22 @@ export default function App({
     seq: number,
     nav: { push: true } | { push: false; index: number },
   ): Promise<PDFDocumentProxy | null> {
+    if (entry.kind === "author") {
+      if (!entry.author) return null;
+      setView({ kind: "author", author: entry.author, label: entry.label });
+      setFocusedCitationEntry(null);
+      setInput(entry.address);
+      setStatus({ kind: "idle" });
+      setCurrentNodeId(entry.nodeId);
+      setHistory((h) =>
+        nav.push
+          ? { entries: [...h.entries.slice(0, h.index + 1), entry], index: h.index + 1 }
+          : { ...h, index: nav.index },
+      );
+      return null;
+    }
+
+    if (!entry.bytes) return null;
     setStatus({ kind: "loading", message: "Parsing PDF…" });
     resetResolutionCache();
     const doc = await loadPdfDocument(entry.bytes.slice(0));
@@ -96,7 +134,11 @@ export default function App({
     setStatus({ kind: "loading", message: "Finding citations…" });
     const citations = await buildCitationData(doc);
     if (seq !== loadSeq.current) return null;
-    setView({ doc, citations, label: entry.label });
+    const authorMarkersByPage = detectAuthorMarkers(
+      citations.pages,
+      entry.paper?.authorProfiles ?? entry.paper?.authors.map((name) => ({ name })) ?? [],
+    );
+    setView({ kind: "paper", doc, citations, authorMarkersByPage, label: entry.label });
     setFocusedCitationEntry(null);
     setInput(entry.address);
     setStatus({ kind: "idle" });
@@ -116,14 +158,25 @@ export default function App({
         ? url
         : origin.kind === "citation"
           ? nodeIdForPaper(origin.paper)
-          : origin.nodeId;
+          : origin.kind === "author"
+            ? origin.author.id
+            : origin.nodeId;
     try {
       setStatus({ kind: "loading", message: "Fetching PDF…" });
       const bytes = await fetchPdfBytes(url);
       if (seq !== loadSeq.current) return;
-      const doc = await showEntry({ bytes, label: label ?? url, address: url, nodeId }, seq, {
-        push: true,
-      });
+      const doc = await showEntry(
+        {
+          kind: "paper",
+          bytes,
+          label: label ?? url,
+          address: url,
+          nodeId,
+          paper: origin.kind === "citation" ? origin.paper : undefined,
+        },
+        seq,
+        { push: true },
+      );
       if (!doc) return;
       onOpenedUrl?.(url, label);
       if (origin.kind === "root") {
@@ -134,9 +187,30 @@ export default function App({
             null,
           ),
         );
-        void enrichRootNode(url, nodeId, doc, setGraph);
+        void enrichRootNode(url, nodeId, doc, setGraph, (paper) => {
+          if (seq !== loadSeq.current) return;
+          setHistory((h) => ({
+            ...h,
+            entries: h.entries.map((entry, index) =>
+              index === h.index && entry.nodeId === nodeId ? { ...entry, paper } : entry,
+            ),
+          }));
+          setView((current) =>
+            current?.kind === "paper"
+              ? {
+                  ...current,
+                  authorMarkersByPage: detectAuthorMarkers(
+                    current.citations.pages,
+                    paper.authorProfiles ?? paper.authors.map((name) => ({ name })),
+                  ),
+                }
+              : current,
+          );
+        });
       } else if (origin.kind === "citation") {
         setGraph((g) => addPaperNode(g, nodeFromPaper(origin.paper), origin.parentId));
+      } else if (origin.kind === "author") {
+        setGraph((g) => addPaperNode(g, nodeFromAuthor(origin.author), origin.parentId));
       }
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
@@ -146,6 +220,10 @@ export default function App({
   useEffect(() => {
     if (!autoLoadInitial || !initialInput.trim()) return;
     try {
+      if (looksLikeAuthorUrl(initialInput)) {
+        void openAuthorFromInput(initialInput, { kind: "root" });
+        return;
+      }
       void openFromUrl(resolveInputToPdfUrl(initialInput), undefined, { kind: "root" });
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
@@ -158,10 +236,59 @@ export default function App({
   function handleLoad() {
     if (!input.trim()) return;
     try {
+      if (looksLikeAuthorUrl(input)) {
+        void openAuthorFromInput(input, { kind: "root" });
+        return;
+      }
       void openFromUrl(resolveInputToPdfUrl(input), undefined, { kind: "root" });
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
     }
+  }
+
+  async function openAuthorFromInput(raw: string, origin: { kind: "root" } | { kind: "paper"; parentId: string | null }) {
+    const seq = ++loadSeq.current;
+    try {
+      setStatus({ kind: "loading", message: "Loading author profile…" });
+      const author = await resolveAuthorInput(raw);
+      if (seq !== loadSeq.current) return;
+      await showAuthor(author, seq, { push: true });
+      setGraph((g) => addPaperNode(g, nodeFromAuthor(author), origin.kind === "paper" ? origin.parentId : null));
+    } catch (err) {
+      if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
+    }
+  }
+
+  async function openAuthorFromRef(ref: AuthorProfileRef) {
+    const seq = ++loadSeq.current;
+    const parentId = currentNodeId;
+    try {
+      setStatus({ kind: "loading", message: "Loading author profile…" });
+      const author = await resolveAuthorRef(ref);
+      if (seq !== loadSeq.current) return;
+      await showAuthor(author, seq, { push: true });
+      setGraph((g) => addPaperNode(g, nodeFromAuthor(author), parentId));
+    } catch (err) {
+      if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
+    }
+  }
+
+  async function showAuthor(
+    author: ResolvedAuthorPage,
+    seq: number,
+    nav: { push: true } | { push: false; index: number },
+  ) {
+    await showEntry(
+      {
+        kind: "author",
+        author,
+        label: author.name,
+        address: author.url ?? author.googleScholarUrl ?? author.semanticScholarUrl ?? author.name,
+        nodeId: author.id,
+      },
+      seq,
+      nav,
+    );
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -173,7 +300,7 @@ export default function App({
       if (seq !== loadSeq.current) return;
       const nodeId = file.name;
       const doc = await showEntry(
-        { bytes, label: file.name, address: file.name, nodeId },
+        { kind: "paper", bytes, label: file.name, address: file.name, nodeId },
         seq,
         { push: true },
       );
@@ -228,11 +355,29 @@ export default function App({
     setStatus({ kind: "error", message: `No link found for “${paper.title}”.` });
   }
 
+  function handleOpenAuthor(author: AuthorProfileRef) {
+    void openAuthorFromRef(author);
+  }
+
   /** A node in the exploration graph was clicked: bring that paper back up.
    * Prefer replaying its bytes from history (works for uploads, skips the
    * refetch); fall back to refetching by address. Revisits never add edges. */
   function handleGraphSelect(node: GraphNode) {
     if (node.id === currentNodeId || status.kind === "loading") return;
+    if (node.kind === "author") {
+      for (let i = history.entries.length - 1; i >= 0; i--) {
+        if (history.entries[i].nodeId === node.id) {
+          void navigate(i - history.index);
+          return;
+        }
+      }
+      if (node.address && looksLikeAuthorUrl(node.address)) {
+        void openAuthorFromInput(node.address, { kind: "root" });
+      } else {
+        setStatus({ kind: "error", message: `No reloadable author link for “${node.title}”.` });
+      }
+      return;
+    }
     if (!node.address) {
       if (node.semanticScholarUrl) window.open(node.semanticScholarUrl, "_blank", "noopener");
       return;
@@ -273,9 +418,12 @@ export default function App({
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  const entryCount = view ? view.citations.entries.length : 0;
-  const markerCount = view
+  const entryCount = view?.kind === "paper" ? view.citations.entries.length : 0;
+  const markerCount = view?.kind === "paper"
     ? [...view.citations.markersByPage.values()].reduce((sum, m) => sum + m.length, 0)
+    : 0;
+  const authorMarkerCount = view?.kind === "paper"
+    ? [...view.authorMarkersByPage.values()].reduce((sum, m) => sum + m.length, 0)
     : 0;
 
   return (
@@ -303,7 +451,7 @@ export default function App({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-            placeholder="arXiv id (1706.03762), arXiv URL, or PDF URL"
+            placeholder="arXiv id, PDF/source URL, or Google Scholar/Semantic Scholar author URL"
           />
           <button onClick={handleLoad} disabled={loading}>
             Load
@@ -313,7 +461,7 @@ export default function App({
           </button>
           <button
             onClick={() => setCitationsOpen((o) => !o)}
-            disabled={!view}
+            disabled={view?.kind !== "paper"}
             title="List of this paper's parsed references"
           >
             {citationsOpen ? "Hide citations" : "Citations"}
@@ -343,27 +491,37 @@ export default function App({
             )}
           </div>
         )}
-        {status.kind === "idle" && view && (
+        {status.kind === "idle" && view?.kind === "paper" && (
           <div className="status-line">
             {view.label} · {entryCount} references parsed · {markerCount} in-text citations linked
+            {authorMarkerCount > 0 ? ` · ${authorMarkerCount} author links` : ""}
+          </div>
+        )}
+        {status.kind === "idle" && view?.kind === "author" && (
+          <div className="status-line">
+            {view.label} · {view.author.works.length} works
           </div>
         )}
       </header>
 
       <div className="app-main">
-        {view ? (
+        {view?.kind === "paper" ? (
           <PdfViewer
             doc={view.doc}
             pages={view.citations.pages}
             markersByPage={view.citations.markersByPage}
+            authorMarkersByPage={view.authorMarkersByPage}
             entries={view.citations.entries}
             focusedEntryIndex={focusedCitationEntry}
             onOpenPaper={handleOpenPaper}
+            onOpenAuthor={handleOpenAuthor}
           />
+        ) : view?.kind === "author" ? (
+          <AuthorPageView author={view.author} onOpenPaper={handleOpenPaper} />
         ) : (
           <div className="app-content-empty" />
         )}
-        {citationsOpen && view && (
+        {citationsOpen && view?.kind === "paper" && (
           <CitationsPanel
             entries={view.citations.entries}
             markersByPage={view.citations.markersByPage}
@@ -395,16 +553,19 @@ async function enrichRootNode(
   nodeId: string,
   doc: PDFDocumentProxy,
   setGraph: React.Dispatch<React.SetStateAction<ExplorationGraph>>,
+  onResolvedPaper?: (paper: ResolvedPaper) => void,
 ): Promise<void> {
   const arxivId = url.match(/arxiv\.org\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1];
   if (arxivId) {
     try {
       const s2 = await getPaperByArxivId(arxivId);
       if (s2) {
-        const node = nodeFromPaper(toResolvedPaper(s2));
+        const paper = toResolvedPaper(s2);
+        const node = nodeFromPaper(paper);
         setGraph((g) =>
           addPaperNode(g, { ...node, id: nodeId, address: url, pdfUrl: url, kind: "pdf" }, null),
         );
+        onResolvedPaper?.({ ...paper, pdfUrl: url });
         return;
       }
     } catch {

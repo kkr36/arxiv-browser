@@ -152,6 +152,7 @@ export function GraphPanel({
                 "graph-node",
                 n.id === currentNodeId ? "current" : "",
                 n.kind === "external" ? "external" : "",
+                n.kind === "author" ? "author" : "",
               ]
                 .filter(Boolean)
                 .join(" ");
@@ -209,13 +210,23 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
   const top = Math.min(hover.y, window.innerHeight - 260);
 
   const authors = node.authors ?? [];
-  const meta = [
-    authors.slice(0, 4).join(", ") + (authors.length > 4 ? ", et al." : ""),
-    node.year ? String(node.year) : "",
-    node.venue ?? "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const meta =
+    node.kind === "author"
+      ? [
+          node.source === "google-scholar" ? "Google Scholar" : "Semantic Scholar",
+          node.paperCount !== undefined ? `${node.paperCount} works` : "",
+          node.citationCount !== undefined ? `${node.citationCount} citations` : "",
+          node.hIndex !== undefined ? `h-index ${node.hIndex}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : [
+          authors.slice(0, 4).join(", ") + (authors.length > 4 ? ", et al." : ""),
+          node.year ? String(node.year) : "",
+          node.venue ?? "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
 
   return (
     <div className="graph-hover-card" style={{ right, top }}>
@@ -225,7 +236,9 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
       <div className="graph-hover-footer">
         {isCurrent
           ? "Currently open"
-          : node.address
+            : node.kind === "author"
+              ? "Click to open this author's works"
+              : node.address
             ? "Click to open in the browser"
             : node.semanticScholarUrl
               ? "Click to open on Semantic Scholar"
@@ -238,6 +251,11 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
 function metaLine(n: GraphNode): string {
   const bits: string[] = [];
   if (n.year) bits.push(String(n.year));
+  if (n.kind === "author") {
+    bits.push("author");
+    if (n.paperCount !== undefined) bits.push(`${n.paperCount} works`);
+    return bits.join(" · ");
+  }
   if (n.authors?.length) {
     bits.push(truncate(n.authors[0], 16) + (n.authors.length > 1 ? " et al." : ""));
   }

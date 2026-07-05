@@ -1,4 +1,8 @@
-import type { CitationMarker, PageTextItem } from "../core/types";
+import type { AuthorMarker, CitationMarker, PageTextItem } from "../core/types";
+
+type OverlayMarker =
+  | (CitationMarker & { overlayKind?: "citation" })
+  | (AuthorMarker & { overlayKind: "author" });
 
 /**
  * Measures the portions of a rendered text layer's spans that fall inside a
@@ -10,8 +14,13 @@ export function applyCitationOverlay(
   textDivs: HTMLElement[],
   items: PageTextItem[],
   markers: CitationMarker[],
+  authorMarkers: AuthorMarker[] = [],
 ): void {
-  if (markers.length === 0) return;
+  const overlayMarkers: OverlayMarker[] = [
+    ...markers,
+    ...authorMarkers.map((m) => ({ ...m, overlayKind: "author" as const })),
+  ];
+  if (overlayMarkers.length === 0) return;
 
   const overlayLayer = document.createElement("div");
   overlayLayer.className = "citation-overlay-layer";
@@ -26,7 +35,7 @@ export function applyCitationOverlay(
     if (!div.isConnected || textNode?.nodeType !== Node.TEXT_NODE) continue;
     const textLength = textNode.textContent?.length ?? 0;
 
-    const overlapping = markers
+    const overlapping = overlayMarkers
       .map((m) => ({ m, from: Math.max(m.start, item.start), to: Math.min(m.end, item.end) }))
       .filter((o) => o.from < o.to)
       .sort((a, b) => a.from - b.from);
@@ -45,8 +54,10 @@ export function applyCitationOverlay(
       if (!rect || rect.width === 0 || rect.height === 0) continue;
 
       const mark = document.createElement("span");
-      mark.className = "citation-mark";
-      mark.dataset.markerId = m.id;
+      const isAuthor = m.overlayKind === "author";
+      mark.className = isAuthor ? "author-mark" : "citation-mark";
+      if (isAuthor) mark.dataset.authorMarkerId = m.id;
+      else mark.dataset.markerId = m.id;
       mark.tabIndex = 0;
       mark.style.left = `${rect.left - layerRect.left}px`;
       mark.style.top = `${rect.top - layerRect.top}px`;

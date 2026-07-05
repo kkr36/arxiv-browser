@@ -24,6 +24,11 @@ export function toResolvedPaper(p: S2Paper): ResolvedPaper {
     title: p.title,
     abstract: p.abstract ?? undefined,
     authors: (p.authors ?? []).map((a) => a.name),
+    authorProfiles: (p.authors ?? []).map((a) => ({
+      name: a.name,
+      semanticScholarAuthorId: a.authorId,
+      semanticScholarUrl: a.url,
+    })),
     year: p.year ?? undefined,
     venue: p.venue ?? undefined,
     pdfUrl,

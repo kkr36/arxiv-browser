@@ -15,10 +15,12 @@ npm run dev
 
 Then open the printed local URL, and either:
 
-- type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, a direct PDF URL, or a supported paper page URL, and click **Load**, or
+- type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, a direct PDF URL, a supported paper page URL, or a Google Scholar / Semantic Scholar author profile URL, and click **Load**, or
 - click **Upload PDF** to browse a local file.
 
 Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
+
+When Semantic Scholar metadata is available for the current paper, author names near the top of the PDF are highlighted too. Click an author to open their compiled works as an author node in the same viewer and exploration graph. Author pages list works from Semantic Scholar; pasted Google Scholar profile URLs are parsed best-effort and enriched with Semantic Scholar when a matching author can be found. Clicking a work opens its PDF when known, or offers the same public-PDF search fallback used for citations.
 
 Supported paper pages include NBER working papers (`nber.org/papers/w34223`), NeurIPS/NIPS proceedings pages (`papers.nips.cc` / `papers.neurips.cc`), and best-effort IEEE Xplore document pages. IEEE downloads depend on access: public or IP-entitled PDFs may work directly; the Chrome extension also attempts credentialed requests using the browser session. For the local web app proxy, you can optionally put an IEEE cookie in `.env.local`:
 
@@ -71,7 +73,7 @@ The dev-server proxy attaches it as `x-api-key` (it never reaches client code). 
 
 The `src/core/` directory (PDF text extraction, citation detection/matching, Semantic Scholar client) has no framework or DOM-overlay dependencies beyond `fetch`, so it is shared by both the web app and the extension viewer. The browser-specific seam is `src/core/net/` plus `src/core/webPdfSearch.ts`: in local dev they use Vite proxy endpoints, while the extension build routes the same requests through `src/extension/background.ts`.
 
-Citation clicks resolve and open one cited PDF at a time inside the same viewer, preserving an in-app back/forward stack and the citation exploration graph.
+Citation, author, and author-work clicks resolve and open one item at a time inside the same viewer, preserving an in-app back/forward stack and the exploration graph.
 
 ### Known limitations
 

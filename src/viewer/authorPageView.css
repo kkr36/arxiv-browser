@@ -1,0 +1,138 @@
+.author-page-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 32px 80px;
+}
+
+.author-page {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.author-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.author-page-header h2 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.author-page-meta {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.author-page-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.author-page-links a,
+.author-work-actions button {
+  border: 1px solid rgba(122, 184, 255, 0.42);
+  border-radius: 6px;
+  background: #24242b;
+  color: #d8eaff;
+  padding: 6px 9px;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.author-page-links a:hover,
+.author-work-actions button:hover:not(:disabled) {
+  border-color: #7ab8ff;
+  background: #2d2d36;
+}
+
+.author-work-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.author-page-empty {
+  margin-top: 24px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.author-works {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+
+.author-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.author-work-main {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.author-work-main:hover .author-work-title {
+  color: #9dccff;
+}
+
+.author-work-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.author-work-meta {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.author-work-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.author-work-status {
+  grid-column: 1 / -1;
+  color: #ffb86b;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .author-page-scroll {
+    padding: 20px 16px 60px;
+  }
+
+  .author-page-header,
+  .author-work {
+    display: block;
+  }
+
+  .author-page-links,
+  .author-work-actions {
+    justify-content: flex-start;
+    margin-top: 10px;
+  }
+}
