@@ -1,14 +1,16 @@
 import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
-import { layoutGraph, NODE_H, NODE_W } from "../core/graph/layoutGraph";
+import { layoutGraph, NODE_H, NODE_W, type GraphLayout } from "../core/graph/layoutGraph";
 
 /**
  * Renders the exploration graph as a fully self-contained HTML document:
  * inline CSS/JS, no external requests. Hovering a node previews the paper;
  * clicking opens its PDF in a new tab, falling back to Semantic Scholar.
  */
-export function buildGraphExportHtml(graph: ExplorationGraph): string {
-  const layout = layoutGraph(graph);
+export function buildGraphExportHtml(
+  graph: ExplorationGraph,
+  layout: GraphLayout = layoutGraph(graph),
+): string {
   const roots = rootIds(graph);
 
   const edgeMarkup = graph.edges

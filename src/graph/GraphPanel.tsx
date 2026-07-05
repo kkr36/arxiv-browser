@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
-import { layoutGraph, NODE_H, NODE_W } from "../core/graph/layoutGraph";
+import { layoutGraph, NODE_H, NODE_W, type GraphLayout, type NodePos } from "../core/graph/layoutGraph";
 import { buildGraphExportHtml } from "./exportGraphHtml";
 import "./graphPanel.css";
 
@@ -15,7 +15,10 @@ interface GraphPanelProps {
 }
 
 const WIDTH_KEY = "arxiv-browser:graph-panel-width";
+const POSITIONS_KEY = "arxiv-browser:graph-node-positions";
 const MIN_WIDTH = 240;
+const CANVAS_PAD = 16;
+const DRAG_THRESHOLD = 3;
 
 function initialWidth(): number {
   const stored = Number(localStorage.getItem(WIDTH_KEY));
@@ -36,20 +39,39 @@ export function GraphPanel({
   onRemoveNode,
   onClose,
 }: GraphPanelProps) {
-  const layout = useMemo(() => layoutGraph(graph), [graph]);
+  const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
   const roots = useMemo(() => rootIds(graph), [graph]);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [width, setWidth] = useState(initialWidth);
-  const dragStart = useRef<{ x: number; width: number } | null>(null);
+  const [manualPositions, setManualPositions] = useState(initialManualPositions);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const layout = useMemo(
+    () => layoutWithManualPositions(baseLayout, graph, manualPositions),
+    [baseLayout, graph, manualPositions],
+  );
+  const manualPositionCount = useMemo(
+    () => graph.nodes.reduce((count, n) => count + (manualPositions.has(n.id) ? 1 : 0), 0),
+    [graph.nodes, manualPositions],
+  );
+  const resizeDrag = useRef<{ x: number; width: number } | null>(null);
+  const nodeDrag = useRef<{
+    id: string;
+    pointerId: number;
+    pointerOffset: NodePos;
+    startClientX: number;
+    startClientY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickNodeId = useRef<string | null>(null);
 
   function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
-    dragStart.current = { x: e.clientX, width };
+    resizeDrag.current = { x: e.clientX, width };
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
   }
 
   function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
-    const start = dragStart.current;
+    const start = resizeDrag.current;
     if (!start) return;
     // The panel hugs the right edge, so dragging left grows it.
     const next = Math.min(
@@ -60,8 +82,8 @@ export function GraphPanel({
   }
 
   function handleResizeEnd() {
-    if (!dragStart.current) return;
-    dragStart.current = null;
+    if (!resizeDrag.current) return;
+    resizeDrag.current = null;
     try {
       localStorage.setItem(WIDTH_KEY, String(width));
     } catch {
@@ -69,8 +91,76 @@ export function GraphPanel({
     }
   }
 
+  function handleNodeDragStart(e: React.PointerEvent<SVGGElement>, id: string, position: NodePos) {
+    if (e.button !== 0) return;
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const pointer = svgPoint(e, svg);
+    nodeDrag.current = {
+      id,
+      pointerId: e.pointerId,
+      pointerOffset: {
+        x: pointer.x - position.x,
+        y: pointer.y - position.y,
+      },
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      moved: false,
+    };
+    setDraggingNodeId(id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleNodeDragMove(e: React.PointerEvent<SVGGElement>) {
+    const drag = nodeDrag.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+
+    drag.moved = true;
+    setHover(null);
+    const pointer = svgPoint(e, svg);
+    const nextPosition = clampNodePosition({
+      x: pointer.x - drag.pointerOffset.x,
+      y: pointer.y - drag.pointerOffset.y,
+    });
+    setManualPositions((prev) => {
+      const next = new Map(prev);
+      next.set(drag.id, nextPosition);
+      persistManualPositions(next);
+      return next;
+    });
+  }
+
+  function handleNodeDragEnd(e: React.PointerEvent<SVGGElement>) {
+    const drag = nodeDrag.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (drag.moved) suppressClickNodeId.current = drag.id;
+    nodeDrag.current = null;
+    setDraggingNodeId(null);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // The browser may already have released capture on pointer cancel.
+    }
+  }
+
+  function handleResetLayout() {
+    setManualPositions((prev) => {
+      const next = new Map(prev);
+      for (const node of graph.nodes) next.delete(node.id);
+      persistManualPositions(next);
+      return next;
+    });
+    setHover(null);
+  }
+
   function handleExport() {
-    const blob = new Blob([buildGraphExportHtml(graph)], { type: "text/html" });
+    const blob = new Blob([buildGraphExportHtml(graph, layout)], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -98,6 +188,9 @@ export function GraphPanel({
         </span>
         <button onClick={handleExport} disabled={graph.nodes.length === 0} title="Download as a standalone HTML page">
           Export
+        </button>
+        <button onClick={handleResetLayout} disabled={manualPositionCount === 0} title="Reset moved nodes to the automatic layout">
+          Reset
         </button>
         <button onClick={onClose} title="Hide graph">
           ✕
@@ -153,6 +246,8 @@ export function GraphPanel({
                 n.id === currentNodeId ? "current" : "",
                 n.kind === "external" ? "external" : "",
                 n.kind === "author" ? "author" : "",
+                n.id === draggingNodeId ? "dragging" : "",
+                manualPositions.has(n.id) ? "moved" : "",
               ]
                 .filter(Boolean)
                 .join(" ");
@@ -161,12 +256,22 @@ export function GraphPanel({
                   key={n.id}
                   className={classes}
                   transform={`translate(${p.x},${p.y})`}
+                  onPointerDown={(e) => handleNodeDragStart(e, n.id, p)}
+                  onPointerMove={handleNodeDragMove}
+                  onPointerUp={handleNodeDragEnd}
+                  onPointerCancel={handleNodeDragEnd}
                   onMouseEnter={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     setHover({ node: n, x: rect.left, y: rect.top });
                   }}
                   onMouseLeave={() => setHover((h) => (h?.node.id === n.id ? null : h))}
-                  onClick={() => onSelectNode(n)}
+                  onClick={() => {
+                    if (suppressClickNodeId.current === n.id) {
+                      suppressClickNodeId.current = null;
+                      return;
+                    }
+                    onSelectNode(n);
+                  }}
                 >
                   <rect className="graph-node-box" width={NODE_W} height={NODE_H} rx={7} />
                   {roots.has(n.id) && (
@@ -181,6 +286,7 @@ export function GraphPanel({
                   <g
                     className="graph-node-remove"
                     transform={`translate(${NODE_W - 11}, 11)`}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setHover(null);
@@ -265,4 +371,71 @@ function metaLine(n: GraphNode): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
+
+function initialManualPositions(): Map<string, NodePos> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(POSITIONS_KEY) ?? "{}") as Record<
+      string,
+      Partial<NodePos>
+    >;
+    const positions = new Map<string, NodePos>();
+    for (const [id, pos] of Object.entries(parsed)) {
+      if (typeof pos.x === "number" && typeof pos.y === "number") {
+        positions.set(id, clampNodePosition(pos as NodePos));
+      }
+    }
+    return positions;
+  } catch {
+    return new Map();
+  }
+}
+
+function persistManualPositions(positions: Map<string, NodePos>) {
+  try {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(Object.fromEntries(positions)));
+  } catch {
+    // persistence is a nice-to-have
+  }
+}
+
+function layoutWithManualPositions(
+  baseLayout: GraphLayout,
+  graph: ExplorationGraph,
+  manualPositions: Map<string, NodePos>,
+): GraphLayout {
+  const positions = new Map(baseLayout.positions);
+  for (const node of graph.nodes) {
+    const manual = manualPositions.get(node.id);
+    if (manual) positions.set(node.id, manual);
+  }
+
+  let width = Math.max(baseLayout.width, 1);
+  let height = Math.max(baseLayout.height, 1);
+  for (const pos of positions.values()) {
+    width = Math.max(width, pos.x + NODE_W + CANVAS_PAD);
+    height = Math.max(height, pos.y + NODE_H + CANVAS_PAD);
+  }
+  return {
+    positions,
+    width: Math.ceil(width),
+    height: Math.ceil(height),
+  };
+}
+
+function svgPoint(e: React.PointerEvent, svg: SVGSVGElement): NodePos {
+  const rect = svg.getBoundingClientRect();
+  const width = Number(svg.getAttribute("width")) || rect.width || 1;
+  const height = Number(svg.getAttribute("height")) || rect.height || 1;
+  return {
+    x: ((e.clientX - rect.left) * width) / Math.max(rect.width, 1),
+    y: ((e.clientY - rect.top) * height) / Math.max(rect.height, 1),
+  };
+}
+
+function clampNodePosition(pos: NodePos): NodePos {
+  return {
+    x: Math.max(CANVAS_PAD / 2, Math.round(pos.x)),
+    y: Math.max(CANVAS_PAD / 2, Math.round(pos.y)),
+  };
 }

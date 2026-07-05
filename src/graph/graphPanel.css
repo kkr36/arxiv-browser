@@ -87,7 +87,21 @@
 }
 
 .graph-node {
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-node.dragging {
+  cursor: grabbing;
+}
+
+.graph-node.dragging .graph-node-box {
+  stroke: #7ab8ff;
+  stroke-width: 1.5;
+}
+
+.graph-node.moved .graph-node-box {
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.22));
 }
 
 .graph-node-box {
