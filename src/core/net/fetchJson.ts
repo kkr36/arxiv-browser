@@ -1,3 +1,5 @@
+import { hasExtensionRuntime, sendExtensionRequest } from "../../extension/runtimeBridge";
+
 const PROXY_PREFIX = "/api/proxy-json?url=";
 
 export interface JsonResponse<T> {
@@ -21,6 +23,13 @@ export async function fetchJson<T>(
   url: string,
   opts?: { viaProxy?: boolean },
 ): Promise<JsonResponse<T>> {
+  if (hasExtensionRuntime()) {
+    const response = await sendExtensionRequest({ type: "fetch-json", url });
+    if (!response.ok) throw new Error(response.error);
+    if (response.type !== "json") throw new Error("Extension returned the wrong response type.");
+    return response.response as JsonResponse<T>;
+  }
+
   if (!opts?.viaProxy) {
     try {
       const res = await fetch(url, { mode: "cors" });
@@ -39,6 +48,13 @@ export async function fetchJson<T>(
  * arXiv API speaks Atom XML). Returns null on a non-OK response.
  */
 export async function fetchText(url: string): Promise<string | null> {
+  if (hasExtensionRuntime()) {
+    const response = await sendExtensionRequest({ type: "fetch-text", url });
+    if (!response.ok) throw new Error(response.error);
+    if (response.type !== "text") throw new Error("Extension returned the wrong response type.");
+    return response.text;
+  }
+
   try {
     const res = await fetch(url, { mode: "cors" });
     if (res.ok) return await res.text();

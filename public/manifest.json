@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Paper Browser",
+  "version": "0.1.0",
+  "description": "Annotate PDF citations and follow cited PDFs in the same tab.",
+  "action": {
+    "default_title": "Annotate this PDF"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": ["activeTab", "tabs"],
+  "host_permissions": ["http://*/*", "https://*/*"]
+}

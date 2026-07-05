@@ -1,5 +1,10 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import {
+  knownPaperUrlsFromText,
+  maybeKnownPaperUrl,
+  resolveKnownPaperPdfUrl,
+} from "./src/core/pdfSources";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
@@ -20,7 +25,7 @@ interface PublicPdfSearchResult {
  * Note: both proxies are open relays (`?url=` fetches anything). That is
  * fine for a local dev server but must never be deployed as-is.
  */
-function pdfProxyPlugin(): Plugin {
+function pdfProxyPlugin(ieeeXploreCookie?: string): Plugin {
   return {
     name: "pdf-proxy",
     configureServer(server) {
@@ -33,15 +38,26 @@ function pdfProxyPlugin(): Plugin {
           return;
         }
         try {
-          const upstream = await fetch(target, {
-            headers: { "User-Agent": "arxiv-browser/0.1 (+local dev proxy)" },
+          let fetchUrl = resolveKnownPaperPdfUrl(target) ?? target;
+          let upstream = await fetch(fetchUrl, {
+            headers: proxyHeadersFor(fetchUrl, ieeeXploreCookie),
             signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
           });
+          if (upstream.ok && !isPdfResponse(upstream) && maybeKnownPaperUrl(fetchUrl)) {
+            const resolved = await validatePdfUrl(fetchUrl, ieeeXploreCookie);
+            if (resolved && resolved !== fetchUrl) {
+              fetchUrl = resolved;
+              upstream = await fetch(fetchUrl, {
+                headers: proxyHeadersFor(fetchUrl, ieeeXploreCookie),
+                signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+              });
+            }
+          }
           if (!upstream.ok || !upstream.body) {
             const detail = (await upstream.text().catch(() => "")).slice(0, 200);
             res.statusCode = upstream.status || 502;
             res.end(
-              `Upstream ${target} responded ${upstream.status} ${upstream.statusText}${detail ? `: ${detail}` : ""}`,
+              `Upstream ${fetchUrl} responded ${upstream.status} ${upstream.statusText}${detail ? `: ${detail}` : ""}`,
             );
             return;
           }
@@ -112,7 +128,7 @@ function jsonProxyPlugin(s2ApiKey?: string): Plugin {
   };
 }
 
-function publicPdfSearchPlugin(): Plugin {
+function publicPdfSearchPlugin(ieeeXploreCookie?: string): Plugin {
   return {
     name: "public-pdf-search",
     configureServer(server) {
@@ -127,7 +143,7 @@ function publicPdfSearchPlugin(): Plugin {
         }
 
         try {
-          const result = await findPublicPdfServer(title, rawText);
+          const result = await findPublicPdfServer(title, rawText, ieeeXploreCookie);
           res.statusCode = 200;
           res.setHeader("Content-Type", "application/json");
           res.setHeader("Access-Control-Allow-Origin", "*");
@@ -145,24 +161,28 @@ function publicPdfSearchPlugin(): Plugin {
 async function findPublicPdfServer(
   title: string,
   rawText: string,
+  ieeeXploreCookie?: string,
 ): Promise<PublicPdfSearchResult | null> {
-  for (const url of urlsFromReference(rawText)) {
-    const pdfUrl = await validatePdfUrl(url);
+  for (const url of [...knownPaperUrlsFromText(rawText), ...urlsFromReference(rawText)]) {
+    const pdfUrl = await validatePdfUrl(url, ieeeXploreCookie);
     if (pdfUrl) return { pdfUrl, title: title || undefined, source: "reference-url" };
   }
 
-  const openAlex = await findOpenAlexPdf(title || rawText);
+  const openAlex = await findOpenAlexPdf(title || rawText, ieeeXploreCookie);
   if (openAlex) return openAlex;
 
   const queryTitle = title || rawText.slice(0, 180);
   for (const url of await findWebPdfCandidates(queryTitle)) {
-    const pdfUrl = await validatePdfUrl(url);
+    const pdfUrl = await validatePdfUrl(url, ieeeXploreCookie);
     if (pdfUrl) return { pdfUrl, title: title || undefined, source: "web-search" };
   }
   return null;
 }
 
-async function findOpenAlexPdf(query: string): Promise<PublicPdfSearchResult | null> {
+async function findOpenAlexPdf(
+  query: string,
+  ieeeXploreCookie?: string,
+): Promise<PublicPdfSearchResult | null> {
   if (query.length < 8) return null;
   const url =
     "https://api.openalex.org/works?per-page=5&select=title,open_access,primary_location,locations&search=" +
@@ -184,7 +204,7 @@ async function findOpenAlexPdf(query: string): Promise<PublicPdfSearchResult | n
       ...(work.locations ?? []).flatMap((l) => [l.pdf_url, l.landing_page_url]),
     ].filter((u): u is string => !!u);
     for (const candidate of urls) {
-      const pdfUrl = await validatePdfUrl(candidate);
+      const pdfUrl = await validatePdfUrl(candidate, ieeeXploreCookie);
       if (pdfUrl) return { pdfUrl, title: work.title, source: "openalex" };
     }
   }
@@ -201,25 +221,33 @@ async function findWebPdfCandidates(title: string): Promise<string[]> {
     );
     if (!html) continue;
     for (const url of urlsFromHtml(html)) {
-      if (looksPdfLike(url)) candidates.push(url);
+      if (looksPdfLike(url) || maybeKnownPaperUrl(url)) candidates.push(url);
       if (candidates.length >= 10) return unique(candidates);
     }
   }
   return unique(candidates);
 }
 
-async function validatePdfUrl(url: string): Promise<string | null> {
+async function validatePdfUrl(url: string, ieeeXploreCookie?: string): Promise<string | null> {
   const normalized = normalizeCandidateUrl(url);
   if (!normalized || !/^https?:\/\//i.test(normalized)) return null;
+  const knownSourcePdf = resolveKnownPaperPdfUrl(normalized);
+  if (knownSourcePdf && knownSourcePdf !== normalized) {
+    return validatePdfUrl(knownSourcePdf, ieeeXploreCookie);
+  }
 
   try {
     const head = await fetch(normalized, {
       method: "HEAD",
       redirect: "follow",
-      headers: { "User-Agent": "arxiv-browser/0.1 (+local PDF finder)" },
+      headers: pdfFinderHeadersFor(normalized, ieeeXploreCookie),
       signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
     });
     if (isPdfResponse(head)) return head.url || normalized;
+    const redirectedKnownSourcePdf = resolveKnownPaperPdfUrl(head.url);
+    if (redirectedKnownSourcePdf && redirectedKnownSourcePdf !== normalized) {
+      return validatePdfUrl(redirectedKnownSourcePdf, ieeeXploreCookie);
+    }
   } catch {
     // Some hosts reject HEAD; try a tiny ranged GET below.
   }
@@ -228,13 +256,17 @@ async function validatePdfUrl(url: string): Promise<string | null> {
     const get = await fetch(normalized, {
       redirect: "follow",
       headers: {
-        "User-Agent": "arxiv-browser/0.1 (+local PDF finder)",
+        ...pdfFinderHeadersFor(normalized, ieeeXploreCookie),
         Range: "bytes=0-4",
       },
       signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
     });
     if (!get.ok) return null;
     if (isPdfResponse(get)) return get.url || normalized;
+    const redirectedKnownSourcePdf = resolveKnownPaperPdfUrl(get.url);
+    if (redirectedKnownSourcePdf && redirectedKnownSourcePdf !== normalized) {
+      return validatePdfUrl(redirectedKnownSourcePdf, ieeeXploreCookie);
+    }
     const bytes = new Uint8Array(await get.arrayBuffer());
     if (
       bytes.length >= 4 &&
@@ -285,7 +317,7 @@ function urlsFromReference(rawText: string): string[] {
   return unique(
     [...rawText.matchAll(/https?:\/\/[^\s"<>]+/gi)]
       .map((m) => m[0].replace(/[.,;)\]]+$/, ""))
-      .filter(looksPdfLike),
+      .filter((url) => looksPdfLike(url) || maybeKnownPaperUrl(url)),
   );
 }
 
@@ -348,9 +380,56 @@ function decodeHtml(s: string): string {
     .replace(/&gt;/g, ">");
 }
 
+function proxyHeadersFor(url: string, ieeeXploreCookie?: string): Record<string, string> {
+  return withIeeeCookie(
+    { "User-Agent": "arxiv-browser/0.1 (+local dev proxy)" },
+    url,
+    ieeeXploreCookie,
+  );
+}
+
+function pdfFinderHeadersFor(url: string, ieeeXploreCookie?: string): Record<string, string> {
+  return withIeeeCookie(
+    { "User-Agent": "arxiv-browser/0.1 (+local PDF finder)" },
+    url,
+    ieeeXploreCookie,
+  );
+}
+
+function withIeeeCookie(
+  headers: Record<string, string>,
+  url: string,
+  ieeeXploreCookie?: string,
+): Record<string, string> {
+  const host = safeUrl(url)?.hostname.toLowerCase();
+  if (ieeeXploreCookie?.trim() && host === "ieeexplore.ieee.org") {
+    return { ...headers, Cookie: ieeeXploreCookie.trim() };
+  }
+  return headers;
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), pdfProxyPlugin(), jsonProxyPlugin(env.S2_API_KEY), publicPdfSearchPlugin()],
+    plugins: [
+      react(),
+      pdfProxyPlugin(env.IEEE_XPLORE_COOKIE),
+      jsonProxyPlugin(env.S2_API_KEY),
+      publicPdfSearchPlugin(env.IEEE_XPLORE_COOKIE),
+    ],
+    build: {
+      rollupOptions: {
+        input: {
+          app: "index.html",
+          "extension-viewer": "extension-viewer.html",
+          background: "src/extension/background.ts",
+        },
+        output: {
+          entryFileNames: "assets/[name].js",
+          chunkFileNames: "assets/[name].js",
+          assetFileNames: "assets/[name].[ext]",
+        },
+      },
+    },
   };
 });

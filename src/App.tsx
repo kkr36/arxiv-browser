@@ -54,8 +54,20 @@ type OpenOrigin =
   | { kind: "citation"; paper: ResolvedPaper; parentId: string | null }
   | { kind: "revisit"; nodeId: string };
 
-export default function App() {
-  const [input, setInput] = useState("1706.03762");
+interface AppProps {
+  initialInput?: string;
+  autoLoadInitial?: boolean;
+  title?: string;
+  onOpenedUrl?: (url: string, label?: string) => void;
+}
+
+export default function App({
+  initialInput = "1706.03762",
+  autoLoadInitial = false,
+  title = "arxiv-browser",
+  onOpenedUrl,
+}: AppProps = {}) {
+  const [input, setInput] = useState(initialInput);
   const [view, setView] = useState<PaperView | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [history, setHistory] = useState<{ entries: HistoryEntry[]; index: number }>({
@@ -113,6 +125,7 @@ export default function App() {
         push: true,
       });
       if (!doc) return;
+      onOpenedUrl?.(url, label);
       if (origin.kind === "root") {
         setGraph((g) =>
           addPaperNode(
@@ -129,6 +142,18 @@ export default function App() {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     }
   }
+
+  useEffect(() => {
+    if (!autoLoadInitial || !initialInput.trim()) return;
+    try {
+      void openFromUrl(resolveInputToPdfUrl(initialInput), undefined, { kind: "root" });
+    } catch (err) {
+      setStatus({ kind: "error", message: (err as Error).message });
+    }
+    // Only auto-open the URL provided at mount time; later navigation is
+    // managed by the viewer's own history and citation click handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleLoad() {
     if (!input.trim()) return;
@@ -256,7 +281,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>arxiv-browser</h1>
+        <h1>{title}</h1>
         <div className="load-bar">
           <button
             className="nav-button"

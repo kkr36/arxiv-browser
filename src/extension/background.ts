@@ -1,0 +1,332 @@
+import type { ExtensionRequest, ExtensionResponse } from "./runtimeBridge";
+import type { JsonResponse } from "../core/net/fetchJson";
+import type { PublicPdfSearchRequest, PublicPdfSearchResult } from "../core/webPdfSearch";
+import {
+  knownPaperUrlsFromText,
+  maybeKnownPaperUrl,
+  resolveKnownPaperPdfUrl,
+} from "../core/pdfSources";
+
+const UPSTREAM_TIMEOUT_MS = 30_000;
+const PDF_SEARCH_TIMEOUT_MS = 12_000;
+
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab.id || !tab.url) return;
+  const sourceUrl = sourceUrlFromTab(tab.url);
+  const viewerUrl = chrome.runtime.getURL(
+    `extension-viewer.html?url=${encodeURIComponent(sourceUrl)}`,
+  );
+  void chrome.tabs.update(tab.id, { url: viewerUrl });
+});
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  void handleMessage(message)
+    .then(sendResponse)
+    .catch((err) => sendResponse({ ok: false, error: messageOf(err) } satisfies ExtensionResponse));
+  return true;
+});
+
+async function handleMessage(message: unknown): Promise<ExtensionResponse> {
+  if (!isExtensionRequest(message)) {
+    return { ok: false, error: "Unknown extension request." };
+  }
+
+  switch (message.type) {
+    case "fetch-pdf":
+      return {
+        ok: true,
+        type: "pdf",
+        bytesBase64: arrayBufferToBase64(await fetchPdfBytes(message.url)),
+      };
+    case "fetch-json":
+      return { ok: true, type: "json", response: await fetchJsonBackground(message.url) };
+    case "fetch-text":
+      return { ok: true, type: "text", text: await fetchTextBackground(message.url) };
+    case "find-public-pdf":
+      return { ok: true, type: "public-pdf", result: await findPublicPdfBackground(message.request) };
+  }
+}
+
+function sourceUrlFromTab(tabUrl: string): string {
+  try {
+    const url = new URL(tabUrl);
+    if (url.protocol === "chrome-extension:" && url.pathname.endsWith("/extension-viewer.html")) {
+      return url.searchParams.get("url") ?? tabUrl;
+    }
+  } catch {
+    // Keep the raw tab URL below.
+  }
+  return tabUrl;
+}
+
+async function fetchPdfBytes(url: string): Promise<ArrayBuffer> {
+  const fetchUrl = resolveKnownPaperPdfUrl(url) ?? url;
+  const res = await fetch(fetchUrl, {
+    credentials: "include",
+    redirect: "follow",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 300);
+    throw new Error(`Could not fetch PDF (HTTP ${res.status}${detail ? `: ${detail}` : ""})`);
+  }
+  const bytes = await res.arrayBuffer();
+  if (isPdfBytes(bytes)) return bytes;
+
+  const resolved = maybeKnownPaperUrl(fetchUrl) ? await validatePdfUrl(fetchUrl) : null;
+  if (resolved && resolved !== fetchUrl) return fetchPdfBytes(resolved);
+  throw new Error("Could not fetch PDF: upstream response was not a PDF.");
+}
+
+async function fetchJsonBackground<T>(url: string): Promise<JsonResponse<T>> {
+  const res = await fetch(url, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  const retryAfter = res.headers.get("retry-after");
+  const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined;
+  return {
+    ok: res.ok,
+    status: res.status,
+    data: res.ok ? ((await res.json()) as T) : null,
+    retryAfterMs,
+  };
+}
+
+async function fetchTextBackground(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findPublicPdfBackground(
+  request: PublicPdfSearchRequest,
+): Promise<PublicPdfSearchResult | null> {
+  const title = cleanText(request.title ?? "");
+  const rawText = cleanText(request.rawText);
+
+  for (const url of [...knownPaperUrlsFromText(rawText), ...urlsFromReference(rawText)]) {
+    const pdfUrl = await validatePdfUrl(url);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "reference-url" };
+  }
+
+  const openAlex = await findOpenAlexPdf(title || rawText);
+  if (openAlex) return openAlex;
+
+  const queryTitle = title || rawText.slice(0, 180);
+  for (const url of await findWebPdfCandidates(queryTitle)) {
+    const pdfUrl = await validatePdfUrl(url);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "web-search" };
+  }
+  return null;
+}
+
+async function findOpenAlexPdf(query: string): Promise<PublicPdfSearchResult | null> {
+  if (query.length < 8) return null;
+  const url =
+    "https://api.openalex.org/works?per-page=5&select=title,open_access,primary_location,locations&search=" +
+    encodeURIComponent(query);
+  const json = await fetchJsonBackground<{
+    results?: Array<{
+      title?: string;
+      open_access?: { oa_url?: string | null };
+      primary_location?: { pdf_url?: string | null; landing_page_url?: string | null };
+      locations?: Array<{ pdf_url?: string | null; landing_page_url?: string | null }>;
+    }>;
+  }>(url);
+
+  for (const work of json.data?.results ?? []) {
+    const urls = [
+      work.open_access?.oa_url,
+      work.primary_location?.pdf_url,
+      work.primary_location?.landing_page_url,
+      ...(work.locations ?? []).flatMap((location) => [
+        location.pdf_url,
+        location.landing_page_url,
+      ]),
+    ].filter((candidate): candidate is string => !!candidate);
+    for (const candidate of urls) {
+      const pdfUrl = await validatePdfUrl(candidate);
+      if (pdfUrl) return { pdfUrl, title: work.title, source: "openalex" };
+    }
+  }
+  return null;
+}
+
+async function findWebPdfCandidates(title: string): Promise<string[]> {
+  if (title.length < 8) return [];
+  const queries = [`"${title}" filetype:pdf`, `"${title}" pdf`];
+  const candidates: string[] = [];
+  for (const query of queries) {
+    const html = await fetchTextBackground(
+      `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    );
+    if (!html) continue;
+    for (const url of urlsFromHtml(html)) {
+      if (looksPdfLike(url) || maybeKnownPaperUrl(url)) candidates.push(url);
+      if (candidates.length >= 10) return unique(candidates);
+    }
+  }
+  return unique(candidates);
+}
+
+async function validatePdfUrl(url: string): Promise<string | null> {
+  const normalized = normalizeCandidateUrl(url);
+  if (!normalized || !/^https?:\/\//i.test(normalized)) return null;
+  const knownSourcePdf = resolveKnownPaperPdfUrl(normalized);
+  if (knownSourcePdf && knownSourcePdf !== normalized) return validatePdfUrl(knownSourcePdf);
+
+  try {
+    const head = await fetch(normalized, {
+      method: "HEAD",
+      credentials: "include",
+      redirect: "follow",
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    if (isPdfResponse(head)) return head.url || normalized;
+    const redirectedKnownSourcePdf = resolveKnownPaperPdfUrl(head.url);
+    if (redirectedKnownSourcePdf && redirectedKnownSourcePdf !== normalized) {
+      return validatePdfUrl(redirectedKnownSourcePdf);
+    }
+  } catch {
+    // Some hosts reject HEAD; try a tiny ranged GET below.
+  }
+
+  try {
+    const get = await fetch(normalized, {
+      credentials: "include",
+      redirect: "follow",
+      headers: { Range: "bytes=0-4" },
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    if (!get.ok) return null;
+    if (isPdfResponse(get)) return get.url || normalized;
+    const redirectedKnownSourcePdf = resolveKnownPaperPdfUrl(get.url);
+    if (redirectedKnownSourcePdf && redirectedKnownSourcePdf !== normalized) {
+      return validatePdfUrl(redirectedKnownSourcePdf);
+    }
+    const bytes = new Uint8Array(await get.arrayBuffer());
+    if (
+      bytes.length >= 4 &&
+      bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46
+    ) {
+      return get.url || normalized;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isPdfResponse(res: Response): boolean {
+  if (!res.ok) return false;
+  const type = res.headers.get("content-type")?.toLowerCase() ?? "";
+  return type.includes("application/pdf") || looksPdfLike(res.url);
+}
+
+function urlsFromReference(rawText: string): string[] {
+  return unique(
+    [...rawText.matchAll(/https?:\/\/[^\s"<>]+/gi)]
+      .map((match) => match[0].replace(/[.,;)\]]+$/, ""))
+      .filter((url) => looksPdfLike(url) || maybeKnownPaperUrl(url)),
+  );
+}
+
+function urlsFromHtml(html: string): string[] {
+  const urls: string[] = [];
+  for (const match of html.matchAll(/href=(["'])(.*?)\1/gi)) {
+    const decoded = decodeHtml(match[2]);
+    const resolved = normalizeDuckDuckGoUrl(decoded);
+    if (resolved) urls.push(resolved);
+  }
+  return unique(urls);
+}
+
+function normalizeDuckDuckGoUrl(url: string): string | null {
+  if (url.startsWith("//")) return `https:${url}`;
+  if (/^https?:\/\//i.test(url)) {
+    const parsed = safeUrl(url);
+    const redirected = parsed?.searchParams.get("uddg");
+    return redirected ? decodeURIComponent(redirected) : url;
+  }
+  const parsed = safeUrl(url, "https://duckduckgo.com");
+  const redirected = parsed?.searchParams.get("uddg");
+  return redirected ? decodeURIComponent(redirected) : null;
+}
+
+function normalizeCandidateUrl(url: string): string | null {
+  const decoded = decodeHtml(url.trim());
+  const parsed = safeUrl(decoded);
+  if (!parsed) return null;
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function looksPdfLike(url: string): boolean {
+  return /\.pdf(?:[?#]|$)/i.test(url) || /\/pdf(?:\/|\?|$)/i.test(url);
+}
+
+function cleanText(s: string): string {
+  return s.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+function safeUrl(url: string, base?: string): URL | null {
+  try {
+    return new URL(url, base);
+  } catch {
+    return null;
+  }
+}
+
+function decodeHtml(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function isExtensionRequest(message: unknown): message is ExtensionRequest {
+  if (!message || typeof message !== "object") return false;
+  const type = (message as { type?: unknown }).type;
+  return (
+    type === "fetch-pdf" ||
+    type === "fetch-json" ||
+    type === "fetch-text" ||
+    type === "find-public-pdf"
+  );
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function isPdfBytes(buffer: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
+  return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}

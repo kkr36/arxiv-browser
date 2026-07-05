@@ -15,12 +15,40 @@ npm run dev
 
 Then open the printed local URL, and either:
 
-- type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, or any direct PDF URL, and click **Load**, or
+- type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, a direct PDF URL, or a supported paper page URL, and click **Load**, or
 - click **Upload PDF** to browse a local file.
 
 Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
 
+Supported paper pages include NBER working papers (`nber.org/papers/w34223`), NeurIPS/NIPS proceedings pages (`papers.nips.cc` / `papers.neurips.cc`), and best-effort IEEE Xplore document pages. IEEE downloads depend on access: public or IP-entitled PDFs may work directly; the Chrome extension also attempts credentialed requests using the browser session. For the local web app proxy, you can optionally put an IEEE cookie in `.env.local`:
+
+```
+IEEE_XPLORE_COOKIE=your-ieee-cookie-string
+```
+
+Keep that file local; the cookie is attached only by the dev server proxy and is never sent to client code.
+
 The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text; the `↗` button resolves and opens that paper, same as clicking an in-text marker.
+
+## Chrome extension
+
+This fork also builds a Manifest V3 Chrome extension:
+
+```
+npm install
+npm run build
+```
+
+Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the generated `dist/` directory.
+
+Usage:
+
+- open a direct PDF URL, such as an arXiv PDF, in Chrome
+- click the **Paper Browser** extension button
+- the current tab is replaced with the extension's pdf.js viewer, using the same citation parsing, hover previews, citations panel, and graph logic as the web app
+- click an annotated in-text citation to load that cited PDF in the same tab; the newly loaded PDF is parsed and annotated too
+
+The extension uses a background service worker for PDF, Semantic Scholar, OpenAlex, and fallback PDF-search requests, so it does not need the local Vite proxy to fetch cross-origin PDFs. The extension build currently uses Semantic Scholar's public API pool; `.env.local`/`S2_API_KEY` only applies to the local dev-server proxy.
 
 ### Semantic Scholar API key (optional but recommended)
 
@@ -41,9 +69,9 @@ The dev-server proxy attaches it as `x-api-key` (it never reaches client code). 
 
 ## Architecture notes
 
-The `src/core/` directory (PDF text extraction, citation detection/matching, Semantic Scholar client) has no framework or DOM-overlay dependencies beyond `fetch` — it's meant to be reusable from a future browser-extension content script, not just this web app. The one browser/extension-specific seam is `src/core/net/` (`fetchPdfBytes`, `fetchJson`), which currently proxies through the dev server but would instead call out from an extension's background script (no CORS issue there, given host permissions).
+The `src/core/` directory (PDF text extraction, citation detection/matching, Semantic Scholar client) has no framework or DOM-overlay dependencies beyond `fetch`, so it is shared by both the web app and the extension viewer. The browser-specific seam is `src/core/net/` plus `src/core/webPdfSearch.ts`: in local dev they use Vite proxy endpoints, while the extension build routes the same requests through `src/extension/background.ts`.
 
-The current version resolves and opens one citation at a time in a new tab. A likely next step is letting a click load the cited paper into the same viewer (keeping a back/forward stack across the citation graph) instead of opening a new tab — the citation service and viewer are already split so that should mostly be a change to the click handler in `src/viewer/PdfViewer.tsx`.
+Citation clicks resolve and open one cited PDF at a time inside the same viewer, preserving an in-app back/forward stack and the citation exploration graph.
 
 ### Known limitations
 

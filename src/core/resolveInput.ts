@@ -1,3 +1,5 @@
+import { KNOWN_PAPER_SOURCE_HINT, resolveKnownPaperPdfUrl } from "./pdfSources";
+
 const ARXIV_ID_RE = /^\d{4}\.\d{4,5}(v\d+)?$/;
 // Pre-2007 ids like "hep-th/9901001" or "cs.CL/0301012".
 const ARXIV_OLD_ID_RE = /^[a-z-]+(\.[A-Z]{2})?\/\d{7}(v\d+)?$/;
@@ -21,10 +23,12 @@ export function resolveInputToPdfUrl(raw: string): string {
     if (url.hostname.includes("arxiv.org") && arxivMatch) {
       return `https://arxiv.org/pdf/${arxivMatch[2]}.pdf`;
     }
+    const knownSourcePdf = resolveKnownPaperPdfUrl(url.toString());
+    if (knownSourcePdf) return knownSourcePdf;
     return url.toString();
   } catch {
     throw new Error(
-      "Enter an arXiv id (e.g. 1706.03762), an arXiv URL, or a direct PDF URL.",
+      `Enter an arXiv id (e.g. 1706.03762), an arXiv URL, or a PDF/source URL. ${KNOWN_PAPER_SOURCE_HINT}`,
     );
   }
 }

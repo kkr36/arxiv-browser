@@ -1,4 +1,5 @@
 import type { ResolvedPaper } from "./types";
+import { hasExtensionRuntime, sendExtensionRequest } from "../extension/runtimeBridge";
 
 export interface PublicPdfSearchRequest {
   title?: string;
@@ -14,6 +15,15 @@ export interface PublicPdfSearchResult {
 export async function findPublicPdf(
   request: PublicPdfSearchRequest,
 ): Promise<PublicPdfSearchResult | null> {
+  if (hasExtensionRuntime()) {
+    const response = await sendExtensionRequest({ type: "find-public-pdf", request });
+    if (!response.ok) throw new Error(response.error);
+    if (response.type !== "public-pdf") {
+      throw new Error("Extension returned the wrong response type.");
+    }
+    return response.result;
+  }
+
   const params = new URLSearchParams();
   if (request.title) params.set("title", request.title);
   params.set("rawText", request.rawText);
