@@ -4,7 +4,7 @@ import { fetchPdfBytes } from "./core/net/fetchPdfBytes";
 import { resolveInputToPdfUrl } from "./core/resolveInput";
 import { loadPdfDocument } from "./core/pdf/loadPdf";
 import { buildCitationData, resetResolutionCache, type CitationData } from "./core/citationService";
-import { detectAuthorMarkers } from "./core/authors/detectAuthorMarkers";
+import { detectAuthorMarkers, extractAuthorCandidates } from "./core/authors/detectAuthorMarkers";
 import {
   looksLikeAuthorUrl,
   resolveAuthorInput,
@@ -26,6 +26,7 @@ import {
 } from "./core/graph/explorationGraph";
 import { PdfViewer } from "./viewer/PdfViewer";
 import { AuthorPageView } from "./viewer/AuthorPageView";
+import { AuthorsPanel } from "./viewer/AuthorsPanel";
 import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
 import "./app.css";
@@ -34,6 +35,7 @@ interface PaperView {
   kind: "paper";
   doc: PDFDocumentProxy;
   citations: CitationData;
+  authors: AuthorProfileRef[];
   authorMarkersByPage: Map<number, AuthorMarker[]>;
   label: string;
 }
@@ -100,6 +102,7 @@ export default function App({
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [graphOpen, setGraphOpen] = useState(true);
   const [citationsOpen, setCitationsOpen] = useState(false);
+  const [authorsOpen, setAuthorsOpen] = useState(false);
   const [focusedCitationEntry, setFocusedCitationEntry] = useState<number | null>(null);
   // Monotonic id per load; a stale async load bails out instead of clobbering
   // a newer one (e.g. two citation clicks in quick succession).
@@ -134,11 +137,9 @@ export default function App({
     setStatus({ kind: "loading", message: "Finding citations…" });
     const citations = await buildCitationData(doc);
     if (seq !== loadSeq.current) return null;
-    const authorMarkersByPage = detectAuthorMarkers(
-      citations.pages,
-      entry.paper?.authorProfiles ?? entry.paper?.authors.map((name) => ({ name })) ?? [],
-    );
-    setView({ kind: "paper", doc, citations, authorMarkersByPage, label: entry.label });
+    const authors = authorsForPaper(entry.paper, citations.pages);
+    const authorMarkersByPage = detectAuthorMarkers(citations.pages, authors);
+    setView({ kind: "paper", doc, citations, authors, authorMarkersByPage, label: entry.label });
     setFocusedCitationEntry(null);
     setInput(entry.address);
     setStatus({ kind: "idle" });
@@ -199,6 +200,7 @@ export default function App({
             current?.kind === "paper"
               ? {
                   ...current,
+                  authors: authorsForPaper(paper, current.citations.pages),
                   authorMarkersByPage: detectAuthorMarkers(
                     current.citations.pages,
                     paper.authorProfiles ?? paper.authors.map((name) => ({ name })),
@@ -425,6 +427,7 @@ export default function App({
   const authorMarkerCount = view?.kind === "paper"
     ? [...view.authorMarkersByPage.values()].reduce((sum, m) => sum + m.length, 0)
     : 0;
+  const authorCount = view?.kind === "paper" ? view.authors.length : 0;
 
   return (
     <div className="app">
@@ -460,11 +463,24 @@ export default function App({
             Upload PDF
           </button>
           <button
-            onClick={() => setCitationsOpen((o) => !o)}
+            onClick={() => {
+              setCitationsOpen((o) => !o);
+              setAuthorsOpen(false);
+            }}
             disabled={view?.kind !== "paper"}
             title="List of this paper's parsed references"
           >
             {citationsOpen ? "Hide citations" : "Citations"}
+          </button>
+          <button
+            onClick={() => {
+              setAuthorsOpen((o) => !o);
+              setCitationsOpen(false);
+            }}
+            disabled={view?.kind !== "paper"}
+            title="List of this paper's authors"
+          >
+            {authorsOpen ? "Hide authors" : "Authors"}
           </button>
           <button onClick={() => setGraphOpen((o) => !o)}>
             {graphOpen ? "Hide graph" : "Graph"}
@@ -494,6 +510,7 @@ export default function App({
         {status.kind === "idle" && view?.kind === "paper" && (
           <div className="status-line">
             {view.label} · {entryCount} references parsed · {markerCount} in-text citations linked
+            {authorCount > 0 ? ` · ${authorCount} authors` : ""}
             {authorMarkerCount > 0 ? ` · ${authorMarkerCount} author links` : ""}
           </div>
         )}
@@ -530,6 +547,14 @@ export default function App({
             onClose={() => setCitationsOpen(false)}
           />
         )}
+        {authorsOpen && view?.kind === "paper" && (
+          <AuthorsPanel
+            authors={view.authors}
+            authorMarkersByPage={view.authorMarkersByPage}
+            onOpenAuthor={handleOpenAuthor}
+            onClose={() => setAuthorsOpen(false)}
+          />
+        )}
         {graphOpen && (
           <GraphPanel
             graph={graph}
@@ -542,6 +567,38 @@ export default function App({
       </div>
     </div>
   );
+}
+
+function authorsForPaper(
+  paper: ResolvedPaper | undefined,
+  pages: CitationData["pages"],
+): AuthorProfileRef[] {
+  const metadataAuthors =
+    paper?.authorProfiles?.length
+      ? paper.authorProfiles
+      : paper?.authors.map((name) => ({ name })) ?? [];
+  return dedupeAuthors([...metadataAuthors, ...extractAuthorCandidates(pages)]);
+}
+
+function dedupeAuthors(authors: AuthorProfileRef[]): AuthorProfileRef[] {
+  const seen = new Set<string>();
+  const seenNames = new Set<string>();
+  const out: AuthorProfileRef[] = [];
+  for (const author of authors) {
+    const name = author.name.replace(/\s+/g, " ").trim();
+    const nameKey = name.toLowerCase();
+    const key = (
+      author.semanticScholarAuthorId ??
+      author.semanticScholarUrl ??
+      author.googleScholarUrl ??
+      name
+    ).toLowerCase();
+    if (!name || seen.has(key) || seenNames.has(nameKey)) continue;
+    seen.add(key);
+    seenNames.add(nameKey);
+    out.push({ ...author, name });
+  }
+  return out;
 }
 
 /** Root nodes start out labeled with what the user typed (a URL). Swap in

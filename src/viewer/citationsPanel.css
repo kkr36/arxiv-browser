@@ -113,6 +113,15 @@
   -webkit-box-orient: vertical;
 }
 
+.cites-item-text strong {
+  font-weight: 600;
+  color: #eee;
+}
+
+.cites-item-detail {
+  color: #9a9aa3;
+}
+
 .cites-item-text.expanded {
   display: block;
   -webkit-line-clamp: unset;

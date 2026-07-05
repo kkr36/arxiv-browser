@@ -13,15 +13,16 @@ export interface GraphLayout {
 
 export const NODE_W = 168;
 export const NODE_H = 42;
-const H_GAP = 48;
-const V_GAP = 14;
+const X_GAP = 16;
+const Y_GAP = 34;
 const PAD = 16;
 
 /**
- * Layered left-to-right layout: column = citation depth (longest path from a
- * root, with a stack guard so citation cycles can't recurse forever), rows
- * assigned in DFS pre-order so children sit near their parents. Plenty for
- * the tens of nodes a browsing session produces.
+ * Layered top-to-bottom layout: row = citation depth (longest path from a
+ * root, with a stack guard so citation cycles can't recurse forever), lanes
+ * assigned in DFS pre-order so children sit near their parents. This favors
+ * vertical growth for the side panel while still letting branchy graphs fan
+ * out horizontally when needed.
  */
 export function layoutGraph(graph: ExplorationGraph): GraphLayout {
   const positions = new Map<string, NodePos>();
@@ -66,24 +67,24 @@ export function layoutGraph(graph: ExplorationGraph): GraphLayout {
   // Components that are pure cycles have no root; pick them up in id order.
   for (const id of ids) dfs(id);
 
-  const rowsUsed = new Map<number, number>();
+  const lanesUsed = new Map<number, number>();
   let maxDepth = 0;
-  let maxRow = 0;
+  let maxLane = 0;
   for (const id of order) {
     const d = depth.get(id) ?? 0;
-    const row = rowsUsed.get(d) ?? 0;
-    rowsUsed.set(d, row + 1);
+    const lane = lanesUsed.get(d) ?? 0;
+    lanesUsed.set(d, lane + 1);
     positions.set(id, {
-      x: PAD + d * (NODE_W + H_GAP),
-      y: PAD + row * (NODE_H + V_GAP),
+      x: PAD + lane * (NODE_W + X_GAP),
+      y: PAD + d * (NODE_H + Y_GAP),
     });
     maxDepth = Math.max(maxDepth, d);
-    maxRow = Math.max(maxRow, row);
+    maxLane = Math.max(maxLane, lane);
   }
 
   return {
     positions,
-    width: PAD * 2 + (maxDepth + 1) * NODE_W + maxDepth * H_GAP,
-    height: PAD * 2 + (maxRow + 1) * NODE_H + maxRow * V_GAP,
+    width: PAD * 2 + (maxLane + 1) * NODE_W + maxLane * X_GAP,
+    height: PAD * 2 + (maxDepth + 1) * NODE_H + maxDepth * Y_GAP,
   };
 }

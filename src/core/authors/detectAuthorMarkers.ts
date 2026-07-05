@@ -50,7 +50,7 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
     const emailAnchored = authorsNearEmailLines(searchLines.map((line) => line.text));
     if (emailAnchored.length > 0) {
       candidates.push(...emailAnchored.map((name) => ({ name })));
-      continue;
+      return dedupeAuthors(candidates);
     }
     for (const line of searchLines) {
       for (const name of namesFromLine(line.text)) {
@@ -58,6 +58,7 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
         if (candidates.length >= MAX_AUTHOR_CANDIDATES) return dedupeAuthors(candidates);
       }
     }
+    if (abstractLineIndex !== -1 || candidates.length > 0) break;
   }
 
   return dedupeAuthors(candidates);
@@ -88,8 +89,25 @@ function namesFromLine(line: string): string[] {
     .filter(Boolean);
   if (parts.length > 1) return parts.filter(isLikelyPersonName);
 
+  const unseparatedNames = namesFromUnseparatedLine(cleaned);
+  if (unseparatedNames.length > 0) return unseparatedNames;
+
   const single = normalizeAuthorName(cleaned);
   return single && isLikelyPersonName(single) ? [single] : [];
+}
+
+function namesFromUnseparatedLine(line: string): string[] {
+  const tokens = normalizeAuthorName(line).split(/\s+/).filter(Boolean);
+  if (tokens.length < 4 || tokens.length > 12 || tokens.length % 2 !== 0) return [];
+  if (!tokens.every((token) => /^[\p{Lu}][\p{L}\p{M}'’.-]+$/u.test(token))) return [];
+
+  const names: string[] = [];
+  for (let i = 0; i < tokens.length; i += 2) {
+    const name = `${tokens[i]} ${tokens[i + 1]}`;
+    if (!isLikelyPersonName(name)) return [];
+    names.push(name);
+  }
+  return names;
 }
 
 function cleanAuthorLine(line: string): string {
@@ -129,12 +147,26 @@ function isLikelyPersonName(name: string): boolean {
   });
   if (nameTokens.length < 2) return false;
   if (tokens.some((token) => /^[a-z]/.test(token))) return false;
-  if (tokens.some((token) => COMMON_NON_NAME_WORDS.has(token.toLowerCase()))) return false;
+  if (tokens.some(isNonNameToken)) return false;
   return true;
+}
+
+function isNonNameToken(token: string): boolean {
+  const lower = token.toLowerCase();
+  if (COMMON_NON_NAME_WORDS.has(lower)) return true;
+  if (/^[A-Z]{2,}s?$/.test(token)) return true;
+  if (
+    token.includes("-") &&
+    !/^[\p{Lu}][\p{L}\p{M}'’]+-[\p{Lu}][\p{L}\p{M}'’]+$/u.test(token)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 const COMMON_NON_NAME_WORDS = new Set([
   "a",
+  "adaptation",
   "all",
   "an",
   "and",
@@ -149,10 +181,13 @@ const COMMON_NON_NAME_WORDS = new Set([
   "in",
   "is",
   "learning",
+  "llm",
+  "llms",
   "model",
   "models",
   "moving",
   "need",
+  "new",
   "network",
   "networks",
   "neural",

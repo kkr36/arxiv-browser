@@ -16,12 +16,12 @@ export function buildGraphExportHtml(graph: ExplorationGraph): string {
       const a = layout.positions.get(e.from);
       const b = layout.positions.get(e.to);
       if (!a || !b) return "";
-      const x1 = a.x + NODE_W;
-      const y1 = a.y + NODE_H / 2;
-      const x2 = b.x;
-      const y2 = b.y + NODE_H / 2;
-      const mx = (x1 + x2) / 2;
-      return `<path class="edge" d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2 - 3} ${y2}" marker-end="url(#arrow)"/>`;
+      const x1 = a.x + NODE_W / 2;
+      const y1 = a.y + NODE_H;
+      const x2 = b.x + NODE_W / 2;
+      const y2 = b.y;
+      const my = (y1 + y2) / 2;
+      return `<path class="edge" d="M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2 - 3}" marker-end="url(#arrow)"/>`;
     })
     .join("\n");
 

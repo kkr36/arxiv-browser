@@ -5,6 +5,12 @@ import type { BibEntry, PageText } from "../types";
 // small-caps headings ("R E F E R E N C E S") and "7. References" both match.
 const COMPACT_HEADING_RE = /^\d{0,2}(references|bibliography)$/;
 const STOP_RE = /^([A-Z0-9]{1,3}[.\s:]+)?(appendix|acknowledg(e)?ments?|supplementary material)\b/i;
+// ACL-style appendices often start as "A Human Evaluation" rather than with
+// the word "Appendix". Stop there so appendix list items cannot masquerade as
+// bracket-key bibliography entries.
+const APPENDIX_LETTER_HEADING_RE =
+  /^[A-Z](?:\.\d+)*\.?\s+[\p{Lu}0-9][\p{L}\p{M}0-9 "'’‘,:;()/-]{2,80}$/u;
+const YEAR_RE = /\b(?:19|20)\d{2}[a-z]?\b/;
 const RUNNING_HEADER_RE = /^published as\s+/i;
 const BRACKET_NUMBER_RE = /^\[(\d+)\]\s*/;
 const BRACKET_LABEL_RE = /^\[([A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/;
@@ -40,7 +46,7 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
 
   let stopIdx = allLines.length;
   for (let i = headingIdx + 1; i < allLines.length; i++) {
-    if (STOP_RE.test(allLines[i].text.trim())) {
+    if (isBibliographyStopLine(allLines[i].text.trim())) {
       stopIdx = i;
       break;
     }
@@ -62,11 +68,15 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
   const numberedGroups = groups.filter(groupStartsWithNumber);
   // In numbered bibliographies, any unnumbered groups after the final entry
   // are almost always later sections/captions that follow the references.
-  const referenceGroups = numberedGroups.length >= 2 ? numberedGroups : groups;
+  const referenceGroups =
+    groups[0] && groupStartsWithNumber(groups[0]) && numberedGroups.length >= 2
+      ? numberedGroups
+      : groups;
 
   const entries: BibEntry[] = referenceGroups
     .map((lines, index) => buildEntry(lines, index))
-    .filter((e) => e.rawText.length > 8);
+    .filter((e) => e.rawText.length > 8)
+    .map((entry, index) => ({ ...entry, index }));
 
   return {
     entries,
@@ -75,6 +85,11 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
     endPage: stopLine?.page ?? null,
     endOffset: stopLine?.start ?? null,
   };
+}
+
+function isBibliographyStopLine(text: string): boolean {
+  if (STOP_RE.test(text)) return true;
+  return APPENDIX_LETTER_HEADING_RE.test(text) && !YEAR_RE.test(text);
 }
 
 function groupStartsWithNumber(lines: PageLine[]): boolean {
