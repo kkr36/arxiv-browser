@@ -7,6 +7,7 @@ const COMPACT_HEADING_RE = /^\d{0,2}(references|bibliography)$/;
 const STOP_RE = /^([A-Z0-9]{1,3}[.\s:]+)?(appendix|acknowledg(e)?ments?|supplementary material)\b/i;
 const RUNNING_HEADER_RE = /^published as\s+/i;
 const BRACKET_NUMBER_RE = /^\[(\d+)\]\s*/;
+const BRACKET_LABEL_RE = /^\[([A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/;
 const DOTTED_NUMBER_RE = /^(\d{1,3})\.\s+(?=[A-Z(])/;
 const AUTHOR_YEAR_ENTRY_RE = /^[\p{Lu}][\p{L}\p{M}'’-]+,\s*(?:[\p{Lu}]\.[\s-]*)+/u;
 
@@ -78,7 +79,7 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
 
 function groupStartsWithNumber(lines: PageLine[]): boolean {
   const first = lines[0]?.text.trim() ?? "";
-  return BRACKET_NUMBER_RE.test(first) || DOTTED_NUMBER_RE.test(first);
+  return BRACKET_NUMBER_RE.test(first) || BRACKET_LABEL_RE.test(first) || DOTTED_NUMBER_RE.test(first);
 }
 
 const COLUMN_X_JUMP = 100;
@@ -103,6 +104,7 @@ function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
     const explicitStart =
       !continuesHyphenatedWord &&
       (BRACKET_NUMBER_RE.test(trimmed) ||
+        BRACKET_LABEL_RE.test(trimmed) ||
         DOTTED_NUMBER_RE.test(trimmed) ||
         AUTHOR_YEAR_ENTRY_RE.test(trimmed));
 
@@ -144,18 +146,24 @@ function buildEntry(lines: PageLine[], index: number): BibEntry {
     .trim();
 
   const bracketMatch = rawJoined.match(/^\[(\d+)\]\s*/);
-  const dottedMatch = !bracketMatch && rawJoined.match(/^(\d{1,3})\.\s+/);
+  const labelMatch = !bracketMatch ? rawJoined.match(BRACKET_LABEL_RE) : null;
+  const dottedMatch =
+    !bracketMatch && !labelMatch ? rawJoined.match(/^(\d{1,3})\.\s+/) : null;
   const number = bracketMatch
     ? Number(bracketMatch[1])
     : dottedMatch
       ? Number(dottedMatch[1])
       : undefined;
+  const citationKey = labelMatch?.[1];
 
-  const rawText = rawJoined.replace(/^\[\d+\]\s*/, "").replace(/^\d{1,3}\.\s+/, "");
+  const rawText = rawJoined
+    .replace(/^\[(?:\d+|[A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/, "")
+    .replace(/^\d{1,3}\.\s+/, "");
 
   return {
     index,
     number,
+    citationKey,
     authorYearKey: extractAuthorYearKey(rawText),
     rawText,
   };

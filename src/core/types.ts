@@ -20,6 +20,7 @@ export interface PageText {
 export interface BibEntry {
   index: number;
   number?: number;
+  citationKey?: string;
   authorYearKey?: { surname: string; year: string };
   rawText: string;
 }
@@ -31,6 +32,7 @@ export interface CitationMarker {
   end: number;
   raw: string;
   refNumbers?: number[];
+  citationKeys?: string[];
   /** One per cited work — multi-cites like "(A, 2019; B, 2020)" carry several. */
   authorYears?: { surname: string; year: string }[];
   entryIndices: number[];

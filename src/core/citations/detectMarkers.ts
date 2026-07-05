@@ -2,6 +2,9 @@ import type { CitationMarker, PageText } from "../types";
 
 const NUMBERED_MARKER_RE = /\[\s*(\d+(?:\s*[-–,]\s*\d+)*)\s*\]/g;
 const NUMBERED_TOKEN_RE = /(\d+)(?:\s*[-–]\s*(\d+))?/g;
+const BRACKET_KEY_MARKER_RE =
+  /\[\s*([A-Za-z][A-Za-z0-9+_.:-]{1,24}(?:\s*[,;]\s*[A-Za-z][A-Za-z0-9+_.:-]{1,24})*)\s*\]/g;
+const BRACKET_KEY_TOKEN_RE = /[A-Za-z][A-Za-z0-9+_.:-]{1,24}/g;
 const BRACKET_AUTHOR_YEAR_RE = /\[([^[\]]{0,450}(?:19|20)\d{2}[a-z]?[^[\]]*)\]/g;
 const PAREN_AUTHOR_YEAR_RE = /\(([^()]{0,450}(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
 const AUTHOR_YEAR_SURNAME = String.raw`[\p{Lu}][\p{L}\p{M}'’-]+(?:-\s*[\p{L}\p{M}'’-]+)?`;
@@ -45,6 +48,25 @@ function numberedMarkers(
       end: tokenStart + token[0].length,
       raw: token[2] ? token[0] : `[${from}]`,
       refNumbers: from <= to ? expandRefRange(from, to) : [from],
+    });
+  }
+  return markers;
+}
+
+function keyedMarkers(page: PageText, match: RegExpExecArray): RawMarker[] {
+  const markers: RawMarker[] = [];
+  const raw = match[0];
+  BRACKET_KEY_TOKEN_RE.lastIndex = 0;
+  let token: RegExpExecArray | null;
+  while ((token = BRACKET_KEY_TOKEN_RE.exec(raw))) {
+    const tokenStart = match.index + token.index;
+    markers.push({
+      id: `p${page.pageNumber}-k${tokenStart}`,
+      page: page.pageNumber,
+      start: tokenStart,
+      end: tokenStart + token[0].length,
+      raw: token[0],
+      citationKeys: [token[0]],
     });
   }
   return markers;
@@ -126,7 +148,7 @@ function dedupeMarkers(markers: RawMarker[]): RawMarker[] {
   const seen = new Set<string>();
   const out: RawMarker[] = [];
   for (const marker of markers) {
-    const key = `${marker.start}:${marker.end}:${marker.refNumbers?.join(",") ?? marker.authorYears?.map((ay) => `${ay.surname}|${ay.year}`).join(",")}`;
+    const key = `${marker.start}:${marker.end}:${marker.refNumbers?.join(",") ?? marker.citationKeys?.join(",") ?? marker.authorYears?.map((ay) => `${ay.surname}|${ay.year}`).join(",")}`;
     if (!seen.has(key)) {
       seen.add(key);
       out.push(marker);
@@ -153,6 +175,13 @@ export function detectMarkersOnPage(page: PageText, exclude?: ExcludedRange): Ra
   while ((m = NUMBERED_MARKER_RE.exec(text))) {
     if (excluded(m.index)) continue;
     markers.push(...numberedMarkers(page, m));
+  }
+
+  BRACKET_KEY_MARKER_RE.lastIndex = 0;
+  while ((m = BRACKET_KEY_MARKER_RE.exec(text))) {
+    if (excluded(m.index)) continue;
+    if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
+    markers.push(...keyedMarkers(page, m));
   }
 
   BRACKET_AUTHOR_YEAR_RE.lastIndex = 0;

@@ -18,7 +18,7 @@ Then open the printed local URL, and either:
 - type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, a direct PDF URL, a supported paper page URL, or a Google Scholar / Semantic Scholar author profile URL, and click **Load**, or
 - click **Upload PDF** to browse a local file.
 
-Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
+Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `[Vas17]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
 
 When Semantic Scholar metadata is available for the current paper, author names near the top of the PDF are highlighted too. Click an author to open their compiled works as an author node in the same viewer and exploration graph. Author pages list works from Semantic Scholar; pasted Google Scholar profile URLs are parsed best-effort and enriched with Semantic Scholar when a matching author can be found. Clicking a work opens its PDF when known, or offers the same public-PDF search fallback used for citations.
 
@@ -65,7 +65,7 @@ The dev-server proxy attaches it as `x-api-key` (it never reaches client code). 
 ## How it works
 
 - **PDF rendering**: [pdf.js](https://mozilla.github.io/pdf.js/) renders each page to a canvas with a transparent text layer on top.
-- **Citation detection**: the extracted text is scanned for numbered (`[12]`) and author-year (`(Smith, 2020)`) markers, and the References/Bibliography section is split into individual entries using a hanging-indent heuristic (falls back to numbered prefixes), so markers can be matched to the entry they cite.
+- **Citation detection**: the extracted text is scanned for numbered (`[12]`), alphanumeric-label (`[Vas17]`), and author-year (`(Smith, 2020)`) markers, and the References/Bibliography section is split into individual entries using a hanging-indent heuristic (falls back to numbered/keyed prefixes), so markers can be matched to the entry they cite.
 - **Resolution**: each cited entry's raw text is looked up via the [Semantic Scholar API](https://api.semanticscholar.org/) to get title/abstract/authors and, where available, a direct open-access PDF link (arXiv link used as a fallback when Semantic Scholar knows the arXiv id). A user-triggered PDF search endpoint can also check explicit reference URLs, OpenAlex open-access locations, and web-search PDF candidates.
 - **Dev proxy**: `vite.config.ts` proxies PDF fetches and Semantic Scholar calls through the dev server, since neither reliably sends CORS headers for browser-origin requests.
 
@@ -78,6 +78,6 @@ Citation, author, and author-work clicks resolve and open one item at a time ins
 ### Known limitations
 
 - Bibliography splitting is heuristic (indentation/numbering based) and can misfire on unusual reference-list layouts.
-- Author-year citation matching handles `(Surname et al., Year)` groups and narrative `Surname et al. (Year)` forms, but not lowercase particles (`van der Berg`) or alphanumeric keys like `[Vas17]`.
+- Author-year citation matching handles `(Surname et al., Year)` groups and narrative `Surname et al. (Year)` forms, but lowercase particles (`van der Berg`) can still be missed.
 - pdf.js text spans can overlap slightly; very small markers (a lone bracket at a line edge) are occasionally hard to hit with the mouse.
 - The Semantic Scholar public API has a low unauthenticated rate limit; without an API key in `.env.local`, expect "rate-limiting" tooltips that succeed on re-hover.

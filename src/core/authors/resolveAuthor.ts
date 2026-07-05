@@ -48,6 +48,19 @@ export async function resolveAuthorInput(raw: string): Promise<ResolvedAuthorPag
 }
 
 export async function resolveAuthorRef(ref: AuthorProfileRef): Promise<ResolvedAuthorPage> {
+  const override = KNOWN_AUTHOR_OVERRIDES.get(normalizeLookupName(ref.name));
+  if (override) {
+    const author = await getAuthorById(override.semanticScholarAuthorId);
+    if (author) return authorPageFromS2(author);
+    return {
+      id: `s2-author:${override.semanticScholarAuthorId}`,
+      name: ref.name,
+      source: "semantic-scholar",
+      semanticScholarUrl: override.semanticScholarUrl,
+      works: [],
+    };
+  }
+
   if (ref.semanticScholarAuthorId) {
     const author = await getAuthorById(ref.semanticScholarAuthorId);
     if (author) return authorPageFromS2(author);
@@ -68,6 +81,33 @@ export async function resolveAuthorRef(ref: AuthorProfileRef): Promise<ResolvedA
     source: "semantic-scholar",
     works: [],
   };
+}
+
+const KNOWN_AUTHOR_OVERRIDES = new Map([
+  [
+    "kevin ren",
+    {
+      semanticScholarAuthorId: "2310234614",
+      semanticScholarUrl: "https://www.semanticscholar.org/author/Kevin-Ren/2310234614",
+    },
+  ],
+  [
+    "nikhil garg",
+    {
+      semanticScholarAuthorId: "2779427",
+      semanticScholarUrl: "https://www.semanticscholar.org/author/Nikhil-Garg/2779427",
+    },
+  ],
+]);
+
+function normalizeLookupName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\s-]+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 export function paperFromAuthorWork(work: AuthorWork) {

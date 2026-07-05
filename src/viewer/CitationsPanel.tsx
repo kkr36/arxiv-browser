@@ -300,6 +300,7 @@ export function CitationsPanel({
  * or its 1-based position when the list is unnumbered and unkeyed. */
 function entryLabel(entry: BibEntry): string {
   if (entry.number !== undefined) return `[${entry.number}]`;
+  if (entry.citationKey) return `[${entry.citationKey}]`;
   if (entry.authorYearKey) return `${entry.authorYearKey.surname} ${entry.authorYearKey.year}`;
   return `${entry.index + 1}.`;
 }
