@@ -2,6 +2,13 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
+const PDF_SEARCH_TIMEOUT_MS = 12_000;
+
+interface PublicPdfSearchResult {
+  pdfUrl: string;
+  title?: string;
+  source: "openalex" | "web-search" | "reference-url";
+}
 
 /**
  * Dev-only PDF proxy. Many hosts (arXiv included, inconsistently) don't send
@@ -105,9 +112,245 @@ function jsonProxyPlugin(s2ApiKey?: string): Plugin {
   };
 }
 
+function publicPdfSearchPlugin(): Plugin {
+  return {
+    name: "public-pdf-search",
+    configureServer(server) {
+      server.middlewares.use("/api/find-public-pdf", async (req, res) => {
+        const fullUrl = new URL(req.url ?? "", "http://localhost");
+        const title = cleanText(fullUrl.searchParams.get("title") ?? "");
+        const rawText = cleanText(fullUrl.searchParams.get("rawText") ?? "");
+        if (!title && !rawText) {
+          res.statusCode = 400;
+          res.end("Missing title or rawText param");
+          return;
+        }
+
+        try {
+          const result = await findPublicPdfServer(title, rawText);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.end(JSON.stringify({ result }));
+        } catch (err) {
+          res.statusCode = 502;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+    },
+  };
+}
+
+async function findPublicPdfServer(
+  title: string,
+  rawText: string,
+): Promise<PublicPdfSearchResult | null> {
+  for (const url of urlsFromReference(rawText)) {
+    const pdfUrl = await validatePdfUrl(url);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "reference-url" };
+  }
+
+  const openAlex = await findOpenAlexPdf(title || rawText);
+  if (openAlex) return openAlex;
+
+  const queryTitle = title || rawText.slice(0, 180);
+  for (const url of await findWebPdfCandidates(queryTitle)) {
+    const pdfUrl = await validatePdfUrl(url);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "web-search" };
+  }
+  return null;
+}
+
+async function findOpenAlexPdf(query: string): Promise<PublicPdfSearchResult | null> {
+  if (query.length < 8) return null;
+  const url =
+    "https://api.openalex.org/works?per-page=5&select=title,open_access,primary_location,locations&search=" +
+    encodeURIComponent(query);
+  const json = await fetchJsonServer<{
+    results?: Array<{
+      title?: string;
+      open_access?: { oa_url?: string | null };
+      primary_location?: { pdf_url?: string | null; landing_page_url?: string | null };
+      locations?: Array<{ pdf_url?: string | null; landing_page_url?: string | null }>;
+    }>;
+  }>(url);
+
+  for (const work of json?.results ?? []) {
+    const urls = [
+      work.open_access?.oa_url,
+      work.primary_location?.pdf_url,
+      work.primary_location?.landing_page_url,
+      ...(work.locations ?? []).flatMap((l) => [l.pdf_url, l.landing_page_url]),
+    ].filter((u): u is string => !!u);
+    for (const candidate of urls) {
+      const pdfUrl = await validatePdfUrl(candidate);
+      if (pdfUrl) return { pdfUrl, title: work.title, source: "openalex" };
+    }
+  }
+  return null;
+}
+
+async function findWebPdfCandidates(title: string): Promise<string[]> {
+  if (title.length < 8) return [];
+  const queries = [`"${title}" filetype:pdf`, `"${title}" pdf`];
+  const candidates: string[] = [];
+  for (const query of queries) {
+    const html = await fetchTextServer(
+      `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    );
+    if (!html) continue;
+    for (const url of urlsFromHtml(html)) {
+      if (looksPdfLike(url)) candidates.push(url);
+      if (candidates.length >= 10) return unique(candidates);
+    }
+  }
+  return unique(candidates);
+}
+
+async function validatePdfUrl(url: string): Promise<string | null> {
+  const normalized = normalizeCandidateUrl(url);
+  if (!normalized || !/^https?:\/\//i.test(normalized)) return null;
+
+  try {
+    const head = await fetch(normalized, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: { "User-Agent": "arxiv-browser/0.1 (+local PDF finder)" },
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    if (isPdfResponse(head)) return head.url || normalized;
+  } catch {
+    // Some hosts reject HEAD; try a tiny ranged GET below.
+  }
+
+  try {
+    const get = await fetch(normalized, {
+      redirect: "follow",
+      headers: {
+        "User-Agent": "arxiv-browser/0.1 (+local PDF finder)",
+        Range: "bytes=0-4",
+      },
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    if (!get.ok) return null;
+    if (isPdfResponse(get)) return get.url || normalized;
+    const bytes = new Uint8Array(await get.arrayBuffer());
+    if (
+      bytes.length >= 4 &&
+      bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46
+    ) {
+      return get.url || normalized;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isPdfResponse(res: Response): boolean {
+  if (!res.ok) return false;
+  const type = res.headers.get("content-type")?.toLowerCase() ?? "";
+  return type.includes("application/pdf") || looksPdfLike(res.url);
+}
+
+async function fetchJsonServer<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "arxiv-browser/0.1 (+local PDF finder)" },
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTextServer(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "arxiv-browser/0.1 (+local PDF finder)" },
+      signal: AbortSignal.timeout(PDF_SEARCH_TIMEOUT_MS),
+    });
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+function urlsFromReference(rawText: string): string[] {
+  return unique(
+    [...rawText.matchAll(/https?:\/\/[^\s"<>]+/gi)]
+      .map((m) => m[0].replace(/[.,;)\]]+$/, ""))
+      .filter(looksPdfLike),
+  );
+}
+
+function urlsFromHtml(html: string): string[] {
+  const urls: string[] = [];
+  for (const match of html.matchAll(/href=(["'])(.*?)\1/gi)) {
+    const decoded = decodeHtml(match[2]);
+    const resolved = normalizeDuckDuckGoUrl(decoded);
+    if (resolved) urls.push(resolved);
+  }
+  return unique(urls);
+}
+
+function normalizeDuckDuckGoUrl(url: string): string | null {
+  if (url.startsWith("//")) return `https:${url}`;
+  if (/^https?:\/\//i.test(url)) {
+    const parsed = safeUrl(url);
+    const redirected = parsed?.searchParams.get("uddg");
+    return redirected ? decodeURIComponent(redirected) : url;
+  }
+  const parsed = safeUrl(url, "https://duckduckgo.com");
+  const redirected = parsed?.searchParams.get("uddg");
+  return redirected ? decodeURIComponent(redirected) : null;
+}
+
+function normalizeCandidateUrl(url: string): string | null {
+  const decoded = decodeHtml(url.trim());
+  const parsed = safeUrl(decoded);
+  if (!parsed) return null;
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function looksPdfLike(url: string): boolean {
+  return /\.pdf(?:[?#]|$)/i.test(url) || /\/pdf(?:\/|\?|$)/i.test(url);
+}
+
+function cleanText(s: string): string {
+  return s.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+function safeUrl(url: string, base?: string): URL | null {
+  try {
+    return new URL(url, base);
+  } catch {
+    return null;
+  }
+}
+
+function decodeHtml(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), pdfProxyPlugin(), jsonProxyPlugin(env.S2_API_KEY)],
+    plugins: [react(), pdfProxyPlugin(), jsonProxyPlugin(env.S2_API_KEY), publicPdfSearchPlugin()],
   };
 });

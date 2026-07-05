@@ -18,7 +18,7 @@ Then open the printed local URL, and either:
 - type an arXiv id (e.g. `1706.03762`), an arXiv `abs`/`pdf` URL, or any direct PDF URL, and click **Load**, or
 - click **Upload PDF** to browse a local file.
 
-Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in a new tab (falls back to its Semantic Scholar page if no open-access PDF is available).
+Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
 
 The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text; the `↗` button resolves and opens that paper, same as clicking an in-text marker.
 
@@ -36,7 +36,7 @@ The dev-server proxy attaches it as `x-api-key` (it never reaches client code). 
 
 - **PDF rendering**: [pdf.js](https://mozilla.github.io/pdf.js/) renders each page to a canvas with a transparent text layer on top.
 - **Citation detection**: the extracted text is scanned for numbered (`[12]`) and author-year (`(Smith, 2020)`) markers, and the References/Bibliography section is split into individual entries using a hanging-indent heuristic (falls back to numbered prefixes), so markers can be matched to the entry they cite.
-- **Resolution**: each cited entry's raw text is looked up via the [Semantic Scholar API](https://api.semanticscholar.org/) to get title/abstract/authors and, where available, a direct open-access PDF link (arXiv link used as a fallback when Semantic Scholar knows the arXiv id).
+- **Resolution**: each cited entry's raw text is looked up via the [Semantic Scholar API](https://api.semanticscholar.org/) to get title/abstract/authors and, where available, a direct open-access PDF link (arXiv link used as a fallback when Semantic Scholar knows the arXiv id). A user-triggered PDF search endpoint can also check explicit reference URLs, OpenAlex open-access locations, and web-search PDF candidates.
 - **Dev proxy**: `vite.config.ts` proxies PDF fetches and Semantic Scholar calls through the dev server, since neither reliably sends CORS headers for browser-origin requests.
 
 ## Architecture notes

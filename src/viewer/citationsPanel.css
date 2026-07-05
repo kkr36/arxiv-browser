@@ -159,3 +159,23 @@
   font-size: 11px;
   color: #ff6b6b;
 }
+
+.cites-item-status.neutral {
+  color: #aaa;
+}
+
+.cites-item-status button {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(122, 184, 255, 0.4);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cites-item-status button:hover {
+  background: #34343f;
+  border-color: #7ab8ff;
+}

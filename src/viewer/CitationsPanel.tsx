@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BibEntry, CitationMarker, ResolvedPaper } from "../core/types";
 import { resolveEntry } from "../core/citationService";
+import { guessTitle } from "../core/semanticScholar/client";
+import { findPublicPdf, paperWithFoundPdf } from "../core/webPdfSearch";
 import "./citationsPanel.css";
 
 interface CitationsPanelProps {
@@ -21,7 +23,14 @@ function initialWidth(): number {
 }
 
 /** Per-entry click feedback; resolution itself is cached in citationService. */
-type ItemStatus = { kind: "resolving" } | { kind: "no-match" } | { kind: "error"; message: string };
+type ItemStatus =
+  | { kind: "resolving" }
+  | { kind: "no-match" }
+  | { kind: "no-pdf"; paper: ResolvedPaper }
+  | { kind: "error"; message: string }
+  | { kind: "searching"; paper?: ResolvedPaper | null }
+  | { kind: "search-not-found"; paper?: ResolvedPaper | null }
+  | { kind: "search-error"; message: string; paper?: ResolvedPaper | null };
 
 export function CitationsPanel({
   entries,
@@ -98,12 +107,16 @@ export function CitationsPanel({
   }
 
   function handleOpen(index: number) {
-    if (status.get(index)?.kind === "resolving") return;
+    if (isBusy(status.get(index))) return;
     setItemStatus(index, { kind: "resolving" });
     resolveEntry(entries, index)
       .then((paper) => {
         if (!paper) {
           setItemStatus(index, { kind: "no-match" });
+          return;
+        }
+        if (!paper.pdfUrl) {
+          setItemStatus(index, { kind: "no-pdf", paper });
           return;
         }
         setItemStatus(index, null);
@@ -112,6 +125,35 @@ export function CitationsPanel({
       .catch((err) => {
         setItemStatus(index, { kind: "error", message: (err as Error).message });
       });
+  }
+
+  function handleSearchPublicPdf(index: number, paper?: ResolvedPaper | null) {
+    const entry = entries[index];
+    if (!entry) return;
+    const title = paper?.title ?? guessTitle(entry.rawText) ?? undefined;
+    const fallbackTitle = title ?? entry.rawText.slice(0, 120);
+
+    setItemStatus(index, { kind: "searching", paper });
+    findPublicPdf({ title, rawText: entry.rawText })
+      .then((result) => {
+        if (!result) {
+          setItemStatus(index, { kind: "search-not-found", paper });
+          return;
+        }
+        setItemStatus(index, null);
+        onOpenPaper(paperWithFoundPdf(paper, result, fallbackTitle));
+      })
+      .catch((err) => {
+        setItemStatus(index, {
+          kind: "search-error",
+          message: (err as Error).message,
+          paper,
+        });
+      });
+  }
+
+  function openSemanticScholar(paper: ResolvedPaper) {
+    if (paper.semanticScholarUrl) window.open(paper.semanticScholarUrl, "_blank", "noopener");
   }
 
   return (
@@ -178,17 +220,72 @@ export function CitationsPanel({
                   <button
                     className="cites-item-action"
                     onClick={() => handleOpen(entry.index)}
-                    disabled={itemStatus?.kind === "resolving"}
+                    disabled={isBusy(itemStatus)}
                     title="Open this paper's PDF"
                   >
-                    {itemStatus?.kind === "resolving" ? "..." : "PDF"}
+                    {isBusy(itemStatus) ? "..." : "PDF"}
                   </button>
                 </div>
                 {itemStatus?.kind === "no-match" && (
-                  <div className="cites-item-status">No match found for this reference.</div>
+                  <div className="cites-item-status">
+                    No API match found.
+                    <button type="button" onClick={() => handleSearchPublicPdf(entry.index)}>
+                      Search web
+                    </button>
+                  </div>
+                )}
+                {itemStatus?.kind === "no-pdf" && (
+                  <div className="cites-item-status">
+                    No open PDF in Semantic Scholar.
+                    {itemStatus.paper.semanticScholarUrl && (
+                      <button type="button" onClick={() => openSemanticScholar(itemStatus.paper)}>
+                        Open page
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleSearchPublicPdf(entry.index, itemStatus.paper)}
+                    >
+                      Search web
+                    </button>
+                  </div>
                 )}
                 {itemStatus?.kind === "error" && (
-                  <div className="cites-item-status">{itemStatus.message}</div>
+                  <div className="cites-item-status">
+                    {itemStatus.message}
+                    <button type="button" onClick={() => handleSearchPublicPdf(entry.index)}>
+                      Search web
+                    </button>
+                  </div>
+                )}
+                {itemStatus?.kind === "searching" && (
+                  <div className="cites-item-status neutral">Searching the web for a PDF...</div>
+                )}
+                {itemStatus?.kind === "search-not-found" && (
+                  <div className="cites-item-status">
+                    No public PDF found.
+                    {itemStatus.paper && itemStatus.paper.semanticScholarUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (itemStatus.paper) openSemanticScholar(itemStatus.paper);
+                        }}
+                      >
+                        Open page
+                      </button>
+                    )}
+                  </div>
+                )}
+                {itemStatus?.kind === "search-error" && (
+                  <div className="cites-item-status">
+                    {itemStatus.message}
+                    <button
+                      type="button"
+                      onClick={() => handleSearchPublicPdf(entry.index, itemStatus.paper)}
+                    >
+                      Try again
+                    </button>
+                  </div>
                 )}
               </li>
             );
@@ -205,4 +302,8 @@ function entryLabel(entry: BibEntry): string {
   if (entry.number !== undefined) return `[${entry.number}]`;
   if (entry.authorYearKey) return `${entry.authorYearKey.surname} ${entry.authorYearKey.year}`;
   return `${entry.index + 1}.`;
+}
+
+function isBusy(status: ItemStatus | undefined): boolean {
+  return status?.kind === "resolving" || status?.kind === "searching";
 }
