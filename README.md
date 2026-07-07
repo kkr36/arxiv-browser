@@ -48,7 +48,7 @@ The graph panel's **Export ▾** menu offers three ways to share a browsing sess
 
   Leave the dialog's key field blank and the dev-server proxy attaches the key server-side — it never reaches client code. Alternatively (and necessarily in the Chrome extension, which has no dev server), paste the key into the dialog; it is then sent as `X-API-Key` directly to `api.semble.so` (their `/xrpc` API serves open CORS) and, if you tick "Remember key", kept in your browser's localStorage.
 
-Use **Resume session** in the top bar to upload an HTML export and continue from its exploration graph. HTML files exported by older versions can be imported node-only, but they did not contain enough structured data to restore edges.
+Use **Resume session** in the top bar to upload an HTML export and continue from its exploration graph. HTML files exported by older versions can be imported node-only, but they did not contain enough structured data to restore edges. In the Chrome extension, file exports are saved under `paper-browser-sessions/` in your browser downloads folder.
 
 Both file exports work identically in the web app and the Chrome extension; Semble publishing routes through the extension's background worker when running as an extension. For development there is a mock mode — set `localStorage["arxiv-browser:semble-mock"] = "1"` and the publish flow runs against a fake backend, logging calls to `window.__sembleMockCalls`.
 

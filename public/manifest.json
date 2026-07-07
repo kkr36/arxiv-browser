@@ -10,6 +10,6 @@
     "service_worker": "assets/background.js",
     "type": "module"
   },
-  "permissions": ["activeTab", "tabs"],
+  "permissions": ["activeTab", "tabs", "downloads"],
   "host_permissions": ["http://*/*", "https://*/*"]
 }

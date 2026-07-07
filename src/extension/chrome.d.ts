@@ -41,4 +41,15 @@ declare namespace chrome {
       updateProperties: { url?: string },
     ): Promise<Tab>;
   }
+
+  namespace downloads {
+    function download(
+      options: {
+        url: string;
+        filename?: string;
+        saveAs?: boolean;
+      },
+      callback?: (downloadId?: number) => void,
+    ): void;
+  }
 }
