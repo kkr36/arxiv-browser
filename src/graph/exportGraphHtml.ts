@@ -1,5 +1,6 @@
 import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
+import { buildSessionExport } from "../core/export/sessionExport";
 import { layoutGraph, NODE_H, NODE_W, type GraphLayout } from "../core/graph/layoutGraph";
 
 /**
@@ -67,6 +68,11 @@ export function buildGraphExportHtml(
   }
   // <-escape so no "</script>" inside a title can terminate the script block.
   const dataJson = JSON.stringify(previewData).replace(/</g, "\\u003c");
+  const sessionJson = JSON.stringify({
+    schema: "arxiv-browser-session",
+    version: 1,
+    session: buildSessionExport(graph, layout),
+  }).replace(/</g, "\\u003c");
 
   const date = new Date().toISOString().slice(0, 10);
 
@@ -149,6 +155,7 @@ ${nodeMarkup}
   <div class="a"></div>
   <div class="f"></div>
 </div>
+<script id="arxiv-browser-session" type="application/json">${sessionJson}</script>
 <script>
 (function () {
   var DATA = ${dataJson};

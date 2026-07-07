@@ -29,6 +29,7 @@ import { AuthorPageView } from "./viewer/AuthorPageView";
 import { AuthorsPanel } from "./viewer/AuthorsPanel";
 import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
+import { parseSessionExportHtml } from "./core/export/sessionImport";
 import "./app.css";
 
 interface PaperView {
@@ -67,6 +68,7 @@ interface HistoryEntry {
 type Status =
   | { kind: "idle" }
   | { kind: "loading"; message: string }
+  | { kind: "notice"; message: string }
   | { kind: "error"; message: string; link?: { url: string; text: string } };
 
 /** How a load was initiated, which decides its place in the exploration graph:
@@ -108,6 +110,7 @@ export default function App({
   // a newer one (e.g. two citation clicks in quick succession).
   const loadSeq = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionInputRef = useRef<HTMLInputElement>(null);
 
   async function showEntry(
     entry: HistoryEntry,
@@ -294,7 +297,8 @@ export default function App({
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const inputEl = e.currentTarget;
+    const file = inputEl.files?.[0];
     if (!file) return;
     const seq = ++loadSeq.current;
     try {
@@ -314,6 +318,40 @@ export default function App({
       if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
+    } finally {
+      inputEl.value = "";
+    }
+  }
+
+  async function handleSessionFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const inputEl = e.currentTarget;
+    const file = inputEl.files?.[0];
+    if (!file) return;
+    const seq = ++loadSeq.current;
+    try {
+      const html = await file.text();
+      if (seq !== loadSeq.current) return;
+      const imported = parseSessionExportHtml(html);
+      setGraph(imported.graph);
+      setCurrentNodeId(null);
+      setHistory({ entries: [], index: -1 });
+      setView(null);
+      setFocusedCitationEntry(null);
+      setCitationsOpen(false);
+      setAuthorsOpen(false);
+      setGraphOpen(true);
+      const firstReloadable = imported.graph.nodes.find((n) => n.address || n.semanticScholarUrl);
+      setInput(firstReloadable?.address ?? firstReloadable?.semanticScholarUrl ?? "");
+      setStatus({
+        kind: "notice",
+        message: imported.degraded
+          ? `Resumed ${imported.graph.nodes.length} nodes and ${imported.graph.edges.length} edges from an older HTML export.`
+          : `Resumed ${imported.graph.nodes.length} nodes from ${imported.title ?? "HTML session"}.`,
+      });
+    } catch (err) {
+      if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
+    } finally {
+      inputEl.value = "";
     }
   }
 
@@ -462,6 +500,9 @@ export default function App({
           <button onClick={() => fileInputRef.current?.click()} disabled={loading}>
             Upload PDF
           </button>
+          <button onClick={() => sessionInputRef.current?.click()} disabled={loading}>
+            Resume session
+          </button>
           <button
             onClick={() => {
               setCitationsOpen((o) => !o);
@@ -492,8 +533,16 @@ export default function App({
             hidden
             onChange={handleFileChange}
           />
+          <input
+            ref={sessionInputRef}
+            type="file"
+            accept="text/html,.html,.htm"
+            hidden
+            onChange={handleSessionFileChange}
+          />
         </div>
         {loading && <div className="status-line">{status.message}</div>}
+        {status.kind === "notice" && <div className="status-line">{status.message}</div>}
         {status.kind === "error" && (
           <div className="status-line error">
             {status.message}
