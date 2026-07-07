@@ -1,8 +1,13 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
 import { layoutGraph, NODE_H, NODE_W, type GraphLayout, type NodePos } from "../core/graph/layoutGraph";
+import { buildSessionExport } from "../core/export/sessionExport";
+import { createZip } from "../core/export/zip";
+import { buildObsidianVault } from "../core/export/obsidian/obsidianVault";
 import { buildGraphExportHtml } from "./exportGraphHtml";
+import { downloadBlob } from "./download";
+import { SembleDialog } from "./SembleDialog";
 import "./graphPanel.css";
 
 interface GraphPanelProps {
@@ -45,6 +50,9 @@ export function GraphPanel({
   const [width, setWidth] = useState(initialWidth);
   const [manualPositions, setManualPositions] = useState(initialManualPositions);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [sembleOpen, setSembleOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const layout = useMemo(
     () => layoutWithManualPositions(baseLayout, graph, manualPositions),
     [baseLayout, graph, manualPositions],
@@ -63,6 +71,22 @@ export function GraphPanel({
     moved: boolean;
   } | null>(null);
   const suppressClickNodeId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!exportMenuRef.current?.contains(e.target as Node)) setExportMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExportMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [exportMenuOpen]);
 
   function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
     resizeDrag.current = { x: e.clientX, width };
@@ -159,14 +183,26 @@ export function GraphPanel({
     setHover(null);
   }
 
-  function handleExport() {
+  function handleExportHtml() {
+    setExportMenuOpen(false);
     const blob = new Blob([buildGraphExportHtml(graph, layout)], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "paper-exploration-graph.html";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, "paper-exploration-graph.html");
+  }
+
+  function handleExportObsidian() {
+    setExportMenuOpen(false);
+    const session = buildSessionExport(graph, layout);
+    const files = buildObsidianVault(session);
+    const zip = createZip([...files].map(([path, data]) => ({ path, data })));
+    downloadBlob(
+      new Blob([zip], { type: "application/zip" }),
+      `paper-exploration-${session.exportedAt}.zip`,
+    );
+  }
+
+  function handlePublishSemble() {
+    setExportMenuOpen(false);
+    setSembleOpen(true);
   }
 
   return (
@@ -186,9 +222,28 @@ export function GraphPanel({
             <span className="graph-panel-count"> · {graph.nodes.length}</span>
           )}
         </span>
-        <button onClick={handleExport} disabled={graph.nodes.length === 0} title="Download as a standalone HTML page">
-          Export
-        </button>
+        <div className="graph-export" ref={exportMenuRef}>
+          <button
+            onClick={() => setExportMenuOpen((open) => !open)}
+            disabled={graph.nodes.length === 0}
+            title="Export or share the graph"
+          >
+            Export ▾
+          </button>
+          {exportMenuOpen && (
+            <div className="graph-export-menu">
+              <button data-export="html" onClick={handleExportHtml}>
+                HTML page
+              </button>
+              <button data-export="obsidian" onClick={handleExportObsidian}>
+                Obsidian vault (.zip)
+              </button>
+              <button data-export="semble" onClick={handlePublishSemble}>
+                Publish to Semble…
+              </button>
+            </div>
+          )}
+        </div>
         <button onClick={handleResetLayout} disabled={manualPositionCount === 0} title="Reset moved nodes to the automatic layout">
           Reset
         </button>
@@ -305,6 +360,13 @@ export function GraphPanel({
       )}
 
       {hover && <HoverCard hover={hover} isCurrent={hover.node.id === currentNodeId} />}
+
+      {sembleOpen && (
+        <SembleDialog
+          session={buildSessionExport(graph, layout)}
+          onClose={() => setSembleOpen(false)}
+        />
+      )}
     </aside>
   );
 }

@@ -32,6 +32,24 @@ Keep that file local; the cookie is attached only by the dev server proxy and is
 
 The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text; the `↗` button resolves and opens that paper, same as clicking an in-text marker.
 
+## Sharing the exploration graph
+
+The graph panel's **Export ▾** menu offers three ways to share a browsing session:
+
+- **HTML page** — a single self-contained HTML file rendering the graph, with hover previews and links (no dependencies, works offline).
+- **Obsidian vault (.zip)** — a folder of Markdown notes (one per paper/author, with YAML frontmatter and abstract) whose *Opened from* / *Led to* `[[wikilinks]]` reproduce the full exploration graph in Obsidian's graph view, plus a session index note and a JSON Canvas (`.canvas`) file preserving the panel layout (including nodes you dragged). Unzip it at your vault root.
+- **Publish to Semble…** — pushes the session to [Semble](https://semble.so) (a social knowledge network on the AT Protocol) as a collection of URL cards in exploration order. Semble has no card-to-card edges, so graph structure degrades to provenance: each card's note records which paper it was opened from, and `viaCardId` points at the parent's card. Papers without any public URL are skipped and listed in the collection description. The Semble API is alpha, so per-card failures are reported but don't abort the publish.
+
+  You need an API key from [semble.so/settings/api-keys](https://semble.so/settings/api-keys). The recommended way to provide it is `.env.local` (gitignored, next to `S2_API_KEY`):
+
+  ```
+  SEMBLE_API_KEY=your-semble-key
+  ```
+
+  Leave the dialog's key field blank and the dev-server proxy attaches the key server-side — it never reaches client code. Alternatively (and necessarily in the Chrome extension, which has no dev server), paste the key into the dialog; it is then sent as `X-API-Key` directly to `api.semble.so` (their `/xrpc` API serves open CORS) and, if you tick "Remember key", kept in your browser's localStorage.
+
+Both file exports work identically in the web app and the Chrome extension; Semble publishing routes through the extension's background worker when running as an extension. For development there is a mock mode — set `localStorage["arxiv-browser:semble-mock"] = "1"` and the publish flow runs against a fake backend, logging calls to `window.__sembleMockCalls`.
+
 ## Chrome extension
 
 This fork also builds a Manifest V3 Chrome extension:

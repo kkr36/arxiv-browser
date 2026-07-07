@@ -44,7 +44,35 @@ async function handleMessage(message: unknown): Promise<ExtensionResponse> {
       return { ok: true, type: "text", text: await fetchTextBackground(message.url) };
     case "find-public-pdf":
       return { ok: true, type: "public-pdf", result: await findPublicPdfBackground(message.request) };
+    case "http-request":
+      return await httpRequestBackground(message);
   }
+}
+
+// The http-request relay forwards arbitrary headers (API keys), so unlike the
+// GET-only fetchers it is limited to hosts that actually need it.
+const HTTP_REQUEST_ALLOWED_HOSTS = new Set(["api.semble.so"]);
+
+async function httpRequestBackground(request: {
+  url: string;
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<ExtensionResponse> {
+  const host = new URL(request.url).hostname;
+  if (!HTTP_REQUEST_ALLOWED_HOSTS.has(host)) {
+    return { ok: false, error: `Host ${host} is not allowed for http-request.` };
+  }
+  const res = await fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    redirect: "follow",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  const retryAfter = res.headers.get("retry-after");
+  const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined;
+  return { ok: true, type: "http", status: res.status, bodyText: await res.text(), retryAfterMs };
 }
 
 function sourceUrlFromTab(tabUrl: string): string {
@@ -307,7 +335,8 @@ function isExtensionRequest(message: unknown): message is ExtensionRequest {
     type === "fetch-pdf" ||
     type === "fetch-json" ||
     type === "fetch-text" ||
-    type === "find-public-pdf"
+    type === "find-public-pdf" ||
+    type === "http-request"
   );
 }
 

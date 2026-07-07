@@ -128,6 +128,54 @@ function jsonProxyPlugin(s2ApiKey?: string): Plugin {
   };
 }
 
+/**
+ * Dev-only proxy for the Semble API (api.semble.so/xrpc). Semble's /xrpc
+ * router does send CORS headers, so the browser *can* call it directly with a
+ * user-entered key — this proxy exists so the key can instead live in
+ * `.env.local` as `SEMBLE_API_KEY` and be attached server-side, never
+ * reaching client code (same pattern as `S2_API_KEY` above). The publish
+ * dialog uses it whenever its API-key field is left blank.
+ */
+function sembleProxyPlugin(sembleApiKey?: string): Plugin {
+  return {
+    name: "semble-proxy",
+    configureServer(server) {
+      server.middlewares.use("/api/proxy-semble", async (req, res) => {
+        if (!sembleApiKey?.trim()) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ message: "SEMBLE_API_KEY is not set in .env.local" }));
+          return;
+        }
+        // req.url is the path after the mount point: "/<nsid>?<query>".
+        const target = `https://api.semble.so/xrpc${req.url ?? ""}`;
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const body = Buffer.concat(chunks);
+          const upstream = await fetch(target, {
+            method: req.method,
+            headers: {
+              "X-API-Key": sembleApiKey.trim(),
+              ...(body.length ? { "Content-Type": "application/json" } : {}),
+            },
+            body: body.length ? body : undefined,
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          });
+          res.statusCode = upstream.status;
+          res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/json");
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          const retryAfter = upstream.headers.get("retry-after");
+          if (retryAfter) res.setHeader("Retry-After", retryAfter);
+          res.end(await upstream.text());
+        } catch (err) {
+          res.statusCode = 502;
+          res.end(JSON.stringify({ message: `Proxy could not reach ${target}: ${(err as Error).message}` }));
+        }
+      });
+    },
+  };
+}
+
 function publicPdfSearchPlugin(ieeeXploreCookie?: string): Plugin {
   return {
     name: "public-pdf-search",
@@ -415,6 +463,7 @@ export default defineConfig(({ mode }) => {
       react(),
       pdfProxyPlugin(env.IEEE_XPLORE_COOKIE),
       jsonProxyPlugin(env.S2_API_KEY),
+      sembleProxyPlugin(env.SEMBLE_API_KEY),
       publicPdfSearchPlugin(env.IEEE_XPLORE_COOKIE),
     ],
     build: {

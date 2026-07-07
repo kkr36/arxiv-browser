@@ -5,13 +5,22 @@ export type ExtensionRequest =
   | { type: "fetch-pdf"; url: string }
   | { type: "fetch-json"; url: string }
   | { type: "fetch-text"; url: string }
-  | { type: "find-public-pdf"; request: PublicPdfSearchRequest };
+  | { type: "find-public-pdf"; request: PublicPdfSearchRequest }
+  /** Authenticated POST/GET relay; the background allowlists the target host. */
+  | {
+      type: "http-request";
+      url: string;
+      method: "GET" | "POST";
+      headers?: Record<string, string>;
+      body?: string;
+    };
 
 export type ExtensionResponse =
   | { ok: true; type: "pdf"; bytesBase64: string }
   | { ok: true; type: "json"; response: JsonResponse<unknown> }
   | { ok: true; type: "text"; text: string | null }
   | { ok: true; type: "public-pdf"; result: PublicPdfSearchResult | null }
+  | { ok: true; type: "http"; status: number; bodyText: string; retryAfterMs?: number }
   | { ok: false; error: string };
 
 export function hasExtensionRuntime(): boolean {

@@ -64,6 +64,38 @@
   cursor: default;
 }
 
+.graph-export {
+  position: relative;
+}
+
+.graph-export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  background: #1f1f24;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.graph-export-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.graph-export-menu button:hover {
+  background: #34343f;
+}
+
 .graph-empty {
   padding: 16px;
   font-size: 12px;
@@ -176,6 +208,151 @@
 
 .graph-node-remove:hover path {
   stroke: #ff6b6b;
+}
+
+.semble-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.semble-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  background: #1f1f24;
+  color: #eee;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.semble-dialog a {
+  color: #7ab8ff;
+}
+
+.semble-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.semble-dialog-subtitle {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.semble-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.semble-field span {
+  opacity: 0.75;
+}
+
+.semble-field input,
+.semble-field textarea,
+.semble-field select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.semble-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.semble-progress {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.semble-error {
+  font-size: 12px;
+  color: #ff6b6b;
+}
+
+.semble-card-list {
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.semble-card-list li {
+  padding: 2px 0;
+}
+
+.semble-card-created {
+  color: #5ad6a0;
+}
+
+.semble-card-skipped-no-url {
+  opacity: 0.6;
+}
+
+.semble-card-failed {
+  color: #ff6b6b;
+}
+
+.semble-link {
+  font-weight: 600;
+}
+
+.semble-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.semble-actions button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.semble-actions button:hover:not(:disabled) {
+  background: #34343f;
+}
+
+.semble-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.semble-actions .semble-primary {
+  background: #3987e5;
+  border-color: #3987e5;
+}
+
+.semble-actions .semble-primary:hover:not(:disabled) {
+  background: #4a94ec;
 }
 
 .graph-hover-card {
