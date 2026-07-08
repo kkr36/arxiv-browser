@@ -20,9 +20,9 @@ Then open the printed local URL, and either:
 
 Once the PDF renders, citation markers (`[12]`, `[3, 4]`, `[Vas17]`, `(Smith et al., 2020)`, or narrative `Smith et al. (2020)` style) are highlighted. Hover one for a title/author/abstract preview (via Semantic Scholar); click one to open the cited paper's PDF in the viewer. If the usual APIs cannot find an open PDF, the tooltip and citations panel can run an explicit web PDF search and open a validated public PDF when one is found.
 
-When Semantic Scholar metadata is available for the current paper, author names near the top of the PDF are highlighted too. Click an author to open their compiled works as an author node in the same viewer and exploration graph. Author pages list works from Semantic Scholar; pasted Google Scholar profile URLs are parsed best-effort and enriched with Semantic Scholar when a matching author can be found. Clicking a work opens its PDF when known, or offers the same public-PDF search fallback used for citations.
+Author names near the top of the PDF are highlighted too, using Semantic Scholar metadata when available and a best-effort first-pages author extractor otherwise. Click an author to open their compiled works as an author node in the same viewer and exploration graph. Author pages list works from Semantic Scholar; pasted Google Scholar profile URLs are parsed best-effort and enriched with Semantic Scholar when a matching author can be found. Clicking a work opens its PDF when known, or offers the same public-PDF search fallback used for citations.
 
-Supported paper pages include NBER working papers (`nber.org/papers/w34223`), NeurIPS/NIPS proceedings pages (`papers.nips.cc` / `papers.neurips.cc`), and best-effort IEEE Xplore document pages. IEEE downloads depend on access: public or IP-entitled PDFs may work directly; the Chrome extension also attempts credentialed requests using the browser session. For the local web app proxy, you can optionally put an IEEE cookie in `.env.local`:
+Supported paper pages include NBER working papers (`nber.org/papers/w34223`) and NBER DOI links (`doi.org/10.3386/w34223`), NeurIPS/NIPS proceedings pages (`papers.nips.cc` / `papers.neurips.cc`, including the datasets/benchmarks proceedings host), and best-effort IEEE Xplore document pages. IEEE downloads depend on access: public or IP-entitled PDFs may work directly; the Chrome extension also attempts credentialed requests using the browser session. For the local web app proxy, you can optionally put an IEEE cookie in `.env.local`:
 
 ```
 IEEE_XPLORE_COOKIE=your-ieee-cookie-string
@@ -30,7 +30,9 @@ IEEE_XPLORE_COOKIE=your-ieee-cookie-string
 
 Keep that file local; the cookie is attached only by the dev server proxy and is never sent to client code.
 
-The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text; the `↗` button resolves and opens that paper, same as clicking an in-text marker.
+The **Citations** button in the header opens a side panel listing every parsed reference for the current paper, with how many times each is cited in the text. Click an item to expand its full reference text, **Find** to jump to its in-text markers, or **PDF** to resolve and open that paper, same as clicking an in-text marker. The **Authors** button opens a similar side panel for detected authors and their linked occurrences.
+
+The viewer keeps an in-app history stack. Use the header arrows, or `Alt+←` / `Alt+→`, to move back and forward through opened papers and author pages.
 
 ## Sharing the exploration graph
 
@@ -48,9 +50,11 @@ The graph panel's **Export ▾** menu offers three ways to share a browsing sess
 
   Leave the dialog's key field blank and the dev-server proxy attaches the key server-side — it never reaches client code. Alternatively (and necessarily in the Chrome extension, which has no dev server), paste the key into the dialog; it is then sent as `X-API-Key` directly to `api.semble.so` (their `/xrpc` API serves open CORS) and, if you tick "Remember key", kept in your browser's localStorage.
 
-Use **Resume session** in the top bar to upload an HTML export and continue from its exploration graph. HTML files exported by older versions can be imported node-only, but they did not contain enough structured data to restore edges. In the Chrome extension, file exports are saved under `paper-browser-sessions/` in your browser downloads folder.
+Use **Resume session** in the top bar to upload an HTML export and continue from its exploration graph. Current HTML exports restore structured nodes and edges; older HTML exports are imported in a degraded mode that restores nodes and attempts to recover edges from the exported SVG layout. In the Chrome extension, file exports are saved under `paper-browser-sessions/` in your browser downloads folder.
 
 Both file exports work identically in the web app and the Chrome extension; Semble publishing routes through the extension's background worker when running as an extension. For development there is a mock mode — set `localStorage["arxiv-browser:semble-mock"] = "1"` and the publish flow runs against a fake backend, logging calls to `window.__sembleMockCalls`.
+
+The graph panel itself is interactive: nodes can be clicked to revisit a paper or author, dragged to adjust the layout, removed from the graph, and previewed by hover. Panel widths and moved node positions are kept in localStorage, and **Reset** restores the automatic graph layout for the current session.
 
 ## Chrome extension
 
