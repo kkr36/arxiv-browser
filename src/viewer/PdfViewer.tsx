@@ -26,6 +26,7 @@ interface PdfViewerProps {
   /** Called with the resolved paper when a citation marker is clicked. */
   onOpenPaper: (paper: ResolvedPaper) => void;
   onOpenAuthor?: (author: AuthorProfileRef) => void;
+  onDownloadPdf?: () => void;
 }
 
 interface TooltipState {
@@ -51,6 +52,7 @@ export function PdfViewer({
   focusedEntryIndex,
   onOpenPaper,
   onOpenAuthor,
+  onDownloadPdf,
 }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -351,6 +353,21 @@ export function PdfViewer({
 
   return (
     <div ref={scrollRef} className="pdf-viewer-scroll">
+      {onDownloadPdf && (
+        <button
+          type="button"
+          className="pdf-download-button"
+          onClick={onDownloadPdf}
+          title="Download PDF"
+          aria-label="Download PDF"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+        </button>
+      )}
       {renderError && <div className="status-line error">{renderError}</div>}
       <div ref={containerRef} className="pdf-viewer" />
       {tooltip && (

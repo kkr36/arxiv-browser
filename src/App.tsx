@@ -30,6 +30,7 @@ import { AuthorPageView } from "./viewer/AuthorPageView";
 import { AuthorsPanel } from "./viewer/AuthorsPanel";
 import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
+import { downloadBlob } from "./graph/download";
 import { parseSessionExportHtml } from "./core/export/sessionImport";
 import "./app.css";
 
@@ -449,6 +450,15 @@ export default function App({
     void openAuthorFromRef(author);
   }
 
+  function handleDownloadCurrentPdf() {
+    const entry = history.entries[history.index];
+    if (entry?.kind !== "paper" || !entry.bytes) return;
+    downloadBlob(
+      new Blob([entry.bytes.slice(0)], { type: "application/pdf" }),
+      pdfDownloadFilename(entry),
+    );
+  }
+
   /** A node in the exploration graph was clicked: bring that paper back up.
    * Prefer replaying its bytes from history (works for uploads, skips the
    * refetch); fall back to refetching by address. Revisits never add edges. */
@@ -521,6 +531,10 @@ export default function App({
     ? [...view.authorMarkersByPage.values()].reduce((sum, m) => sum + m.length, 0)
     : 0;
   const authorCount = view?.kind === "paper" ? view.authors.length : 0;
+  const canDownloadCurrentPdf =
+    view?.kind === "paper" &&
+    history.entries[history.index]?.kind === "paper" &&
+    !!history.entries[history.index]?.bytes;
 
   return (
     <div className="app">
@@ -657,6 +671,7 @@ export default function App({
             focusedEntryIndex={focusedCitationEntry}
             onOpenPaper={handleOpenPaper}
             onOpenAuthor={handleOpenAuthor}
+            onDownloadPdf={canDownloadCurrentPdf ? handleDownloadCurrentPdf : undefined}
           />
         ) : view?.kind === "author" ? (
           <AuthorPageView author={view.author} onOpenPaper={handleOpenPaper} />
@@ -784,4 +799,28 @@ function arrayBufferToPdfDataUrl(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return `data:application/pdf;base64,${btoa(binary)}`;
+}
+
+function pdfDownloadFilename(entry: HistoryEntry): string {
+  const raw = filenameBase(entry.label) ?? filenameBase(entry.address) ?? "paper";
+  const cleaned = raw
+    .replace(/\.pdf$/i, "")
+    .replace(/[<>:"|?*\x00-\x1f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+  return `${cleaned || "paper"}.pdf`;
+}
+
+function filenameBase(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:")) return null;
+  try {
+    const url = new URL(trimmed);
+    const last = url.pathname.split("/").filter(Boolean).at(-1);
+    return decodeURIComponent(last || url.hostname);
+  } catch {
+    return trimmed;
+  }
 }

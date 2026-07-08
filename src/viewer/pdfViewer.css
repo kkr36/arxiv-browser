@@ -5,6 +5,42 @@
   padding: 24px 0 80px;
 }
 
+.pdf-download-button {
+  position: sticky;
+  top: 12px;
+  left: 12px;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: 0 0 -38px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(22, 22, 26, 0.52);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.pdf-download-button:hover,
+.pdf-download-button:focus-visible {
+  background: rgba(42, 42, 51, 0.76);
+  border-color: rgba(255, 255, 255, 0.36);
+  outline: none;
+}
+
+.pdf-download-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .pdf-viewer {
   display: flex;
   flex-direction: column;

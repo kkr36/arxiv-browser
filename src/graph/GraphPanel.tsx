@@ -6,7 +6,7 @@ import { buildSessionExport } from "../core/export/sessionExport";
 import { createZip } from "../core/export/zip";
 import { buildObsidianVault } from "../core/export/obsidian/obsidianVault";
 import { buildGraphExportHtml } from "./exportGraphHtml";
-import { downloadBlob } from "./download";
+import { SESSION_DOWNLOAD_DIR, downloadBlob } from "./download";
 import { SembleDialog } from "./SembleDialog";
 import "./graphPanel.css";
 
@@ -223,7 +223,7 @@ export function GraphPanel({
   function handleExportHtml() {
     setExportMenuOpen(false);
     const blob = new Blob([buildGraphExportHtml(graph, layout)], { type: "text/html" });
-    downloadBlob(blob, "paper-exploration-graph.html");
+    downloadBlob(blob, "paper-exploration-graph.html", { directory: SESSION_DOWNLOAD_DIR });
   }
 
   function handleExportObsidian() {
@@ -234,6 +234,7 @@ export function GraphPanel({
     downloadBlob(
       new Blob([zip], { type: "application/zip" }),
       `paper-exploration-${session.exportedAt}.zip`,
+      { directory: SESSION_DOWNLOAD_DIR },
     );
   }
 

@@ -1,9 +1,13 @@
 const SESSION_DOWNLOAD_DIR = "paper-browser-sessions";
 
 /** Triggers a browser download of `blob` as `filename`. */
-export function downloadBlob(blob: Blob, filename: string): void {
+export function downloadBlob(
+  blob: Blob,
+  filename: string,
+  options: { directory?: string } = {},
+): void {
   if (typeof chrome !== "undefined" && "downloads" in chrome) {
-    void downloadBlobWithChrome(blob, filename);
+    void downloadBlobWithChrome(blob, filename, options.directory);
     return;
   }
 
@@ -12,17 +16,25 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function downloadBlobWithChrome(blob: Blob, filename: string): Promise<void> {
+async function downloadBlobWithChrome(
+  blob: Blob,
+  filename: string,
+  directory?: string,
+): Promise<void> {
   const url = URL.createObjectURL(blob);
+  const safeFilename = sanitizeFilename(filename);
+  const downloadName = directory
+    ? `${sanitizeFilename(directory)}/${safeFilename}`
+    : safeFilename;
   try {
     await new Promise<void>((resolve, reject) => {
       chrome.downloads.download(
         {
           url,
-          filename: `${SESSION_DOWNLOAD_DIR}/${sanitizeFilename(filename)}`,
+          filename: downloadName,
           saveAs: false,
         },
         () => {
@@ -45,3 +57,5 @@ async function downloadBlobWithChrome(blob: Blob, filename: string): Promise<voi
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[\\/]+/g, "-").replace(/^\.+/, "").trim() || "download";
 }
+
+export { SESSION_DOWNLOAD_DIR };
