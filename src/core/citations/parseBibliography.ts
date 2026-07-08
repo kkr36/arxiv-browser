@@ -46,7 +46,7 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
 
   let stopIdx = allLines.length;
   for (let i = headingIdx + 1; i < allLines.length; i++) {
-    if (isBibliographyStopLine(allLines[i].text.trim())) {
+    if (isBibliographyStopLine(allLines[i], allLines)) {
       stopIdx = i;
       break;
     }
@@ -87,9 +87,14 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
   };
 }
 
-function isBibliographyStopLine(text: string): boolean {
+function isBibliographyStopLine(line: PageLine, lines: PageLine[]): boolean {
+  const text = line.text.trim();
   if (STOP_RE.test(text)) return true;
-  return APPENDIX_LETTER_HEADING_RE.test(text) && !YEAR_RE.test(text);
+  return (
+    APPENDIX_LETTER_HEADING_RE.test(text) &&
+    !YEAR_RE.test(text) &&
+    isAtColumnStart(line, lines)
+  );
 }
 
 function groupStartsWithNumber(lines: PageLine[]): boolean {
@@ -116,15 +121,21 @@ function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
     const line = lines[i];
     const trimmed = line.text.trim();
     const continuesHyphenatedWord = !!prev?.text.trim().endsWith("-");
-    const explicitStart =
+    const continuesOpenAuthorList =
+      !!prev && !isBreakBetween(prev, line) && /(?:[,;:]|[-–])$/.test(prev.text.trim());
+    const explicitNumberedStart =
       !continuesHyphenatedWord &&
       (BRACKET_NUMBER_RE.test(trimmed) ||
         BRACKET_LABEL_RE.test(trimmed) ||
-        DOTTED_NUMBER_RE.test(trimmed) ||
-        AUTHOR_YEAR_ENTRY_RE.test(trimmed));
+        DOTTED_NUMBER_RE.test(trimmed));
+    const explicitAuthorYearStart =
+      !continuesHyphenatedWord &&
+      !continuesOpenAuthorList &&
+      AUTHOR_YEAR_ENTRY_RE.test(trimmed) &&
+      isAtColumnStart(line, lines);
 
     let isNewEntry: boolean;
-    if (explicitStart) {
+    if (explicitNumberedStart || explicitAuthorYearStart) {
       isNewEntry = true;
     } else if (!prev) {
       isNewEntry = true;
@@ -150,6 +161,20 @@ function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
   if (current.length > 0) groups.push(current);
 
   return groups;
+}
+
+function isAtColumnStart(line: PageLine, lines: PageLine[]): boolean {
+  const columnStart = Math.min(
+    ...lines
+      .filter((candidate) => {
+        return (
+          candidate.page === line.page &&
+          Math.abs(candidate.x - line.x) < COLUMN_X_JUMP
+        );
+      })
+      .map((candidate) => candidate.x),
+  );
+  return line.x <= columnStart + OUTDENT_EPS;
 }
 
 function buildEntry(lines: PageLine[], index: number): BibEntry {

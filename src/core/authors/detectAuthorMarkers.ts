@@ -80,6 +80,9 @@ function authorsNearEmailLines(lines: string[]): string[] {
 }
 
 function namesFromLine(line: string): string[] {
+  const affiliationMarked = namesFromAffiliationMarkedLine(line);
+  if (affiliationMarked.length > 0) return affiliationMarked;
+
   const cleaned = cleanAuthorLine(line);
   if (!cleaned || rejectAuthorLine(cleaned)) return [];
 
@@ -94,6 +97,20 @@ function namesFromLine(line: string): string[] {
 
   const single = normalizeAuthorName(cleaned);
   return single && isLikelyPersonName(single) ? [single] : [];
+}
+
+function namesFromAffiliationMarkedLine(line: string): string[] {
+  const names: string[] = [];
+  const re =
+    /((?:[\p{Lu}][\p{L}\p{M}'’.-]+|[\p{Lu}]\.)(?:\s+(?:[\p{Lu}][\p{L}\p{M}'’.-]+|[\p{Lu}]\.)){1,4})\s*(?:[*†‡§¶#]+\s*)?(?:\d+(?:\s*[,;]\s*\d+)*)\b/gu;
+
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line))) {
+    const name = normalizeAuthorName(match[1]);
+    if (name && isLikelyPersonName(name)) names.push(name);
+  }
+
+  return names.length >= 2 ? names : [];
 }
 
 function namesFromUnseparatedLine(line: string): string[] {
