@@ -174,7 +174,19 @@ ${nodeMarkup}
 
   function openPaper(paper) {
     var href = paper.pdfUrl || paper.semanticScholarUrl || paper.googleScholarUrl;
+    if (href && href.indexOf("data:application/pdf") === 0) href = blobUrlFromDataUrl(href);
     if (href) window.open(href, "_blank", "noopener");
+  }
+
+  function blobUrlFromDataUrl(url) {
+    var parts = url.match(/^data:([^,]*?),(.*)$/);
+    if (!parts) return url;
+    var meta = parts[1];
+    var payload = parts[2];
+    var binary = meta.indexOf(";base64") >= 0 ? atob(payload) : decodeURIComponent(payload);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
   }
 
   function showCard(paper, x, y) {

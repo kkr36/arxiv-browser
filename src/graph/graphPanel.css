@@ -96,6 +96,44 @@
   background: #34343f;
 }
 
+.graph-tools {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.graph-tools select,
+.graph-tools button {
+  min-width: 0;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+}
+
+.graph-tools button {
+  cursor: pointer;
+}
+
+.graph-tools button:hover:not(:disabled) {
+  background: #34343f;
+}
+
+.graph-tools button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.graph-link-arrow {
+  color: #9a9aa3;
+  font-size: 13px;
+}
+
 .graph-empty {
   padding: 16px;
   font-size: 12px;

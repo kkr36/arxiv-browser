@@ -42,6 +42,7 @@ export function CitationsPanel({
   const [width, setWidth] = useState(initialWidth);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<Map<number, ItemStatus>>(new Map());
+  const [sortMode, setSortMode] = useState<CitationSortMode>("paper-order");
   const dragStart = useRef<{ x: number; width: number } | null>(null);
 
   // A new paper's entries arrive as a new array; drop the old paper's
@@ -60,6 +61,11 @@ export function CitationsPanel({
     }
     return counts;
   }, [markersByPage]);
+
+  const sortedEntries = useMemo(
+    () => sortCitationEntries(entries, sortMode),
+    [entries, sortMode],
+  );
 
   function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
     dragStart.current = { x: e.clientX, width };
@@ -171,6 +177,17 @@ export function CitationsPanel({
           Citations
           {entries.length > 0 && <span className="cites-panel-count"> · {entries.length}</span>}
         </span>
+        <select
+          className="cites-sort"
+          value={sortMode}
+          onChange={(e) => setSortMode(e.currentTarget.value as CitationSortMode)}
+          title="Sort citations"
+        >
+          <option value="paper-order">Paper order</option>
+          <option value="year-asc">Year ↑</option>
+          <option value="year-desc">Year ↓</option>
+          <option value="alpha">A-Z</option>
+        </select>
         <button onClick={onClose} title="Hide citations">
           ✕
         </button>
@@ -183,7 +200,7 @@ export function CitationsPanel({
         </div>
       ) : (
         <ol className="cites-list">
-          {entries.map((entry) => {
+          {sortedEntries.map((entry) => {
             const count = markerCounts.get(entry.index) ?? 0;
             const isExpanded = expanded.has(entry.index);
             const itemStatus = status.get(entry.index);
@@ -294,6 +311,38 @@ export function CitationsPanel({
       )}
     </aside>
   );
+}
+
+type CitationSortMode = "paper-order" | "year-asc" | "year-desc" | "alpha";
+
+function sortCitationEntries(entries: BibEntry[], mode: CitationSortMode): BibEntry[] {
+  const sorted = [...entries];
+  if (mode === "paper-order") return sorted.sort((a, b) => a.index - b.index);
+  if (mode === "alpha") {
+    return sorted.sort((a, b) => normalizedTitle(a).localeCompare(normalizedTitle(b)));
+  }
+  return sorted.sort((a, b) => {
+    const fallback = mode === "year-asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    const ay = citationYear(a) ?? fallback;
+    const by = citationYear(b) ?? fallback;
+    return mode === "year-asc"
+      ? ay - by || a.index - b.index
+      : by - ay || a.index - b.index;
+  });
+}
+
+function citationYear(entry: BibEntry): number | null {
+  const keyed = entry.authorYearKey?.year;
+  if (keyed && /^\d{4}$/.test(keyed)) return Number(keyed);
+  const matches = [...entry.rawText.matchAll(/\b(19|20)\d{2}\b/g)];
+  const years = matches.map((m) => Number(m[0])).filter((year) => year >= 1900 && year <= 2099);
+  return years.length ? Math.max(...years) : null;
+}
+
+function normalizedTitle(entry: BibEntry): string {
+  return entry.rawText
+    .replace(/^\s*(\[\d+\]|\d+\.|\([A-Za-z][^)]+,\s*\d{4}\))\s*/, "")
+    .toLowerCase();
 }
 
 /** Short handle for an entry: its bibliography number, its author-year key,

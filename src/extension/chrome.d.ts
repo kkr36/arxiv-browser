@@ -34,12 +34,40 @@ declare namespace chrome {
     interface Tab {
       id?: number;
       url?: string;
+      windowId?: number;
     }
 
     function update(
       tabId: number,
-      updateProperties: { url?: string },
+      updateProperties: { url?: string; active?: boolean },
     ): Promise<Tab>;
+
+    function query(queryInfo: { url?: string | string[] }): Promise<Tab[]>;
+  }
+
+  namespace windows {
+    function update(
+      windowId: number,
+      updateInfo: { focused?: boolean },
+    ): Promise<unknown>;
+  }
+
+  namespace storage {
+    interface StorageChange {
+      oldValue?: unknown;
+      newValue?: unknown;
+    }
+
+    interface StorageArea {
+      get(keys: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>>;
+      set(items: Record<string, unknown>): Promise<void>;
+      remove(keys: string | string[]): Promise<void>;
+    }
+
+    const local: StorageArea;
+    const onChanged: ChromeEvent<
+      (changes: Record<string, StorageChange>, areaName: "local" | "sync" | "managed" | "session") => void
+    >;
   }
 
   namespace downloads {

@@ -16,6 +16,7 @@ interface GraphPanelProps {
   currentNodeId: string | null;
   onSelectNode: (node: GraphNode) => void;
   onRemoveNode: (id: string) => void;
+  onAddEdge: (from: string, to: string) => void;
   onClose: () => void;
 }
 
@@ -42,6 +43,7 @@ export function GraphPanel({
   currentNodeId,
   onSelectNode,
   onRemoveNode,
+  onAddEdge,
   onClose,
 }: GraphPanelProps) {
   const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
@@ -52,6 +54,9 @@ export function GraphPanel({
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [sembleOpen, setSembleOpen] = useState(false);
+  const [linkFromId, setLinkFromId] = useState("");
+  const [linkToId, setLinkToId] = useState("");
+  const [sortMode, setSortMode] = useState<GraphSortMode>("manual");
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const layout = useMemo(
     () => layoutWithManualPositions(baseLayout, graph, manualPositions),
@@ -71,6 +76,11 @@ export function GraphPanel({
     moved: boolean;
   } | null>(null);
   const suppressClickNodeId = useRef<string | null>(null);
+
+  useEffect(() => {
+    setLinkFromId((id) => (graph.nodes.some((n) => n.id === id) ? id : graph.nodes[0]?.id ?? ""));
+    setLinkToId((id) => (graph.nodes.some((n) => n.id === id) ? id : graph.nodes[1]?.id ?? ""));
+  }, [graph.nodes]);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -174,9 +184,36 @@ export function GraphPanel({
   }
 
   function handleResetLayout() {
+    setSortMode("manual");
     setManualPositions((prev) => {
       const next = new Map(prev);
       for (const node of graph.nodes) next.delete(node.id);
+      persistManualPositions(next);
+      return next;
+    });
+    setHover(null);
+  }
+
+  function handleAddManualEdge() {
+    if (!linkFromId || !linkToId || linkFromId === linkToId) return;
+    onAddEdge(linkFromId, linkToId);
+  }
+
+  function handleSort(mode: GraphSortMode) {
+    setSortMode(mode);
+    if (mode === "manual") {
+      handleResetLayout();
+      return;
+    }
+    const sorted = sortedGraphNodes(graph.nodes, mode);
+    setManualPositions((prev) => {
+      const next = new Map(prev);
+      sorted.forEach((node, index) => {
+        next.set(node.id, {
+          x: CANVAS_PAD,
+          y: CANVAS_PAD + index * (NODE_H + 14),
+        });
+      });
       persistManualPositions(next);
       return next;
     });
@@ -251,6 +288,51 @@ export function GraphPanel({
           ✕
         </button>
       </div>
+
+      {graph.nodes.length > 1 && (
+        <div className="graph-tools">
+          <select
+            value={sortMode}
+            onChange={(e) => handleSort(e.currentTarget.value as GraphSortMode)}
+            title="Physically sort nodes"
+          >
+            <option value="manual">Manual order</option>
+            <option value="year-asc">Year ↑</option>
+            <option value="year-desc">Year ↓</option>
+            <option value="citations-desc">Citations ↓</option>
+            <option value="citations-asc">Citations ↑</option>
+          </select>
+          <select
+            value={linkFromId}
+            onChange={(e) => setLinkFromId(e.currentTarget.value)}
+            title="Parent node"
+          >
+            {graph.nodes.map((node) => (
+              <option key={node.id} value={node.id}>
+                {truncate(node.title, 36)}
+              </option>
+            ))}
+          </select>
+          <span className="graph-link-arrow">→</span>
+          <select
+            value={linkToId}
+            onChange={(e) => setLinkToId(e.currentTarget.value)}
+            title="Child node"
+          >
+            {graph.nodes.map((node) => (
+              <option key={node.id} value={node.id}>
+                {truncate(node.title, 36)}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleAddManualEdge}
+            disabled={!linkFromId || !linkToId || linkFromId === linkToId}
+          >
+            Link
+          </button>
+        </div>
+      )}
 
       {graph.nodes.length === 0 ? (
         <div className="graph-empty">
@@ -369,6 +451,31 @@ export function GraphPanel({
       )}
     </aside>
   );
+}
+
+type GraphSortMode = "manual" | "year-asc" | "year-desc" | "citations-asc" | "citations-desc";
+
+function sortedGraphNodes(
+  nodes: GraphNode[],
+  mode: Exclude<GraphSortMode, "manual">,
+): GraphNode[] {
+  return [...nodes].sort((a, b) => {
+    if (mode === "year-asc" || mode === "year-desc") {
+      const missing = mode === "year-asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      const av = a.year ?? missing;
+      const bv = b.year ?? missing;
+      return mode === "year-asc" ? av - bv || titleCompare(a, b) : bv - av || titleCompare(a, b);
+    }
+    const missing =
+      mode === "citations-asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    const av = a.citationCount ?? missing;
+    const bv = b.citationCount ?? missing;
+    return mode === "citations-asc" ? av - bv || titleCompare(a, b) : bv - av || titleCompare(a, b);
+  });
+}
+
+function titleCompare(a: GraphNode, b: GraphNode): number {
+  return a.title.localeCompare(b.title);
 }
 
 function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean }) {

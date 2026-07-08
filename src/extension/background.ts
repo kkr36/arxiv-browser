@@ -9,14 +9,12 @@ import {
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
+const PENDING_ROOT_KEY = "pendingRootRequest";
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id || !tab.url) return;
   const sourceUrl = sourceUrlFromTab(tab.url);
-  const viewerUrl = chrome.runtime.getURL(
-    `extension-viewer.html?url=${encodeURIComponent(sourceUrl)}`,
-  );
-  void chrome.tabs.update(tab.id, { url: viewerUrl });
+  void openOrQueueInViewer(tab, sourceUrl);
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -47,6 +45,33 @@ async function handleMessage(message: unknown): Promise<ExtensionResponse> {
     case "http-request":
       return await httpRequestBackground(message);
   }
+}
+
+async function openOrQueueInViewer(tab: chrome.tabs.Tab, sourceUrl: string): Promise<void> {
+  const viewer = await findExistingViewerTab(tab.id);
+  if (viewer?.id) {
+    await chrome.storage.local.set({
+      [PENDING_ROOT_KEY]: { id: Date.now(), input: sourceUrl },
+    });
+    if (viewer.windowId !== undefined) {
+      await chrome.windows.update(viewer.windowId, { focused: true });
+    }
+    await chrome.tabs.update(viewer.id, { active: true });
+    return;
+  }
+
+  if (!tab.id) return;
+  await chrome.storage.local.remove(PENDING_ROOT_KEY);
+  const viewerUrl = chrome.runtime.getURL(
+    `extension-viewer.html?url=${encodeURIComponent(sourceUrl)}`,
+  );
+  await chrome.tabs.update(tab.id, { url: viewerUrl });
+}
+
+async function findExistingViewerTab(currentTabId?: number): Promise<chrome.tabs.Tab | null> {
+  const viewerUrl = chrome.runtime.getURL("extension-viewer.html");
+  const tabs = await chrome.tabs.query({ url: `${viewerUrl}*` });
+  return tabs.find((tab) => tab.id !== currentTabId) ?? tabs[0] ?? null;
 }
 
 // The http-request relay forwards arbitrary headers (API keys), so unlike the

@@ -15,6 +15,7 @@ import { toResolvedPaper } from "./core/semanticScholar/resolvePaper";
 import type { AuthorMarker, AuthorProfileRef, ResolvedAuthorPage, ResolvedPaper } from "./core/types";
 import {
   EMPTY_GRAPH,
+  addGraphEdge,
   addPaperNode,
   nodeFromAuthor,
   nodeFromPaper,
@@ -85,6 +86,8 @@ interface AppProps {
   autoLoadInitial?: boolean;
   title?: string;
   onOpenedUrl?: (url: string, label?: string) => void;
+  pendingRootRequest?: { id: number; input: string } | null;
+  onPendingRootHandled?: (id: number) => void;
 }
 
 export default function App({
@@ -92,6 +95,8 @@ export default function App({
   autoLoadInitial = false,
   title = "arxiv-browser",
   onOpenedUrl,
+  pendingRootRequest = null,
+  onPendingRootHandled,
 }: AppProps = {}) {
   const [input, setInput] = useState(initialInput);
   const [view, setView] = useState<MainView | null>(null);
@@ -106,6 +111,9 @@ export default function App({
   const [citationsOpen, setCitationsOpen] = useState(false);
   const [authorsOpen, setAuthorsOpen] = useState(false);
   const [focusedCitationEntry, setFocusedCitationEntry] = useState<number | null>(null);
+  const [pendingRootInput, setPendingRootInput] = useState<{ id: number; input: string } | null>(
+    null,
+  );
   // Monotonic id per load; a stale async load bails out instead of clobbering
   // a newer one (e.g. two citation clicks in quick succession).
   const loadSeq = useRef(0);
@@ -238,6 +246,11 @@ export default function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!pendingRootRequest) return;
+    setPendingRootInput(pendingRootRequest);
+  }, [pendingRootRequest]);
+
   function handleLoad() {
     if (!input.trim()) return;
     try {
@@ -246,6 +259,22 @@ export default function App({
         return;
       }
       void openFromUrl(resolveInputToPdfUrl(input), undefined, { kind: "root" });
+    } catch (err) {
+      setStatus({ kind: "error", message: (err as Error).message });
+    }
+  }
+
+  function handlePendingRootLoad() {
+    const pending = pendingRootInput;
+    if (!pending) return;
+    try {
+      if (looksLikeAuthorUrl(pending.input)) {
+        void openAuthorFromInput(pending.input, { kind: "root" });
+      } else {
+        void openFromUrl(resolveInputToPdfUrl(pending.input), undefined, { kind: "root" });
+      }
+      onPendingRootHandled?.(pending.id);
+      setPendingRootInput(null);
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -305,6 +334,7 @@ export default function App({
       const bytes = await file.arrayBuffer();
       if (seq !== loadSeq.current) return;
       const nodeId = file.name;
+      const dataUrl = arrayBufferToPdfDataUrl(bytes);
       const doc = await showEntry(
         { kind: "paper", bytes, label: file.name, address: file.name, nodeId },
         seq,
@@ -312,7 +342,11 @@ export default function App({
       );
       if (!doc) return;
       setGraph((g) =>
-        addPaperNode(g, { id: nodeId, title: file.name, address: file.name, kind: "pdf" }, null),
+        addPaperNode(
+          g,
+          { id: nodeId, title: file.name, address: file.name, pdfUrl: dataUrl, kind: "pdf" },
+          null,
+        ),
       );
       const title = await readPdfTitle(doc);
       if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
@@ -340,8 +374,15 @@ export default function App({
       setCitationsOpen(false);
       setAuthorsOpen(false);
       setGraphOpen(true);
-      const firstReloadable = imported.graph.nodes.find((n) => n.address || n.semanticScholarUrl);
-      setInput(firstReloadable?.address ?? firstReloadable?.semanticScholarUrl ?? "");
+      const firstReloadable = imported.graph.nodes.find(
+        (n) => n.address || n.pdfUrl || n.semanticScholarUrl,
+      );
+      setInput(
+        firstReloadable?.address ??
+          firstReloadable?.pdfUrl ??
+          firstReloadable?.semanticScholarUrl ??
+          "",
+      );
       setStatus({
         kind: "notice",
         message: imported.degraded
@@ -418,7 +459,8 @@ export default function App({
       }
       return;
     }
-    if (!node.address) {
+    const reloadAddress = node.address ?? node.pdfUrl;
+    if (!reloadAddress) {
       if (node.semanticScholarUrl) window.open(node.semanticScholarUrl, "_blank", "noopener");
       return;
     }
@@ -428,7 +470,7 @@ export default function App({
         return;
       }
     }
-    void openFromUrl(node.address, node.title, { kind: "revisit", nodeId: node.id });
+    void openFromUrl(reloadAddress, node.title, { kind: "revisit", nodeId: node.id });
   }
 
   /** Removing a node only edits the graph — the paper stays open in the
@@ -437,6 +479,10 @@ export default function App({
   function handleRemoveNode(id: string) {
     setGraph((g) => removeNode(g, id));
     if (currentNodeId === id) setCurrentNodeId(null);
+  }
+
+  function handleAddGraphEdge(from: string, to: string) {
+    setGraph((g) => addGraphEdge(g, from, to));
   }
 
   const canBack = history.index > 0;
@@ -568,6 +614,22 @@ export default function App({
             {view.label} · {view.author.works.length} works
           </div>
         )}
+        {pendingRootInput && (
+          <div className="pending-root-banner">
+            <span>{pendingRootInput.input}</span>
+            <button onClick={handlePendingRootLoad} disabled={loading}>
+              Add as root
+            </button>
+            <button
+              onClick={() => {
+                onPendingRootHandled?.(pendingRootInput.id);
+                setPendingRootInput(null);
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="app-main">
@@ -610,6 +672,7 @@ export default function App({
             currentNodeId={currentNodeId}
             onSelectNode={handleGraphSelect}
             onRemoveNode={handleRemoveNode}
+            onAddEdge={handleAddGraphEdge}
             onClose={() => setGraphOpen(false)}
           />
         )}
@@ -697,4 +760,14 @@ async function readPdfTitle(doc: PDFDocumentProxy): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function arrayBufferToPdfDataUrl(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return `data:application/pdf;base64,${btoa(binary)}`;
 }

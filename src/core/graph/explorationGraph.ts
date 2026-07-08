@@ -104,6 +104,18 @@ export function addPaperNode(
   return { nodes, edges };
 }
 
+export function addGraphEdge(
+  graph: ExplorationGraph,
+  from: string,
+  to: string,
+): ExplorationGraph {
+  if (from === to) return graph;
+  const ids = new Set(graph.nodes.map((n) => n.id));
+  if (!ids.has(from) || !ids.has(to)) return graph;
+  if (graph.edges.some((e) => e.from === from && e.to === to)) return graph;
+  return { ...graph, edges: [...graph.edges, { from, to }] };
+}
+
 /**
  * Replaces a node's title, but only while the current one is still an
  * address-shaped placeholder (URL / arXiv id / file name) — a real title,

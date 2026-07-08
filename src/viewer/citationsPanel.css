@@ -59,6 +59,17 @@
   background: #34343f;
 }
 
+.cites-sort {
+  min-width: 96px;
+  max-width: 122px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+}
+
 .cites-empty {
   padding: 16px;
   font-size: 12px;

@@ -16,6 +16,8 @@ function messageOf(err: unknown): string {
  * permissions) — nothing else in the app needs to change.
  */
 export async function fetchPdfBytes(url: string): Promise<ArrayBuffer> {
+  if (url.startsWith("data:")) return dataUrlToArrayBuffer(url);
+
   const fetchUrl = resolveKnownPaperPdfUrl(url) ?? url;
 
   if (hasExtensionRuntime()) {
@@ -59,6 +61,17 @@ export async function fetchPdfBytes(url: string): Promise<ArrayBuffer> {
   const resolved = await resolveKnownSourceViaSearch(fetchUrl);
   if (resolved) return fetchPdfBytes(resolved);
   throw new Error("Could not fetch PDF via proxy: upstream response was not a PDF.");
+}
+
+function dataUrlToArrayBuffer(url: string): ArrayBuffer {
+  const match = url.match(/^data:([^,]*?),(.*)$/);
+  if (!match) throw new Error("Invalid embedded PDF URL.");
+  const meta = match[1];
+  const payload = match[2];
+  const binary = meta.includes(";base64") ? atob(payload) : decodeURIComponent(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {

@@ -25,6 +25,7 @@ export function AuthorsPanel({
 }: AuthorsPanelProps) {
   const [width, setWidth] = useState(initialWidth);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sortMode, setSortMode] = useState<AuthorSortMode>("author-list");
   const dragStart = useRef<{ x: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -41,6 +42,11 @@ export function AuthorsPanel({
     }
     return counts;
   }, [authorMarkersByPage]);
+
+  const sortedAuthors = useMemo(
+    () => sortAuthors(authors, sortMode),
+    [authors, sortMode],
+  );
 
   function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
     dragStart.current = { x: e.clientX, width };
@@ -92,6 +98,15 @@ export function AuthorsPanel({
           Authors
           {authors.length > 0 && <span className="cites-panel-count"> · {authors.length}</span>}
         </span>
+        <select
+          className="cites-sort"
+          value={sortMode}
+          onChange={(e) => setSortMode(e.currentTarget.value as AuthorSortMode)}
+          title="Sort authors"
+        >
+          <option value="author-list">Author list</option>
+          <option value="alpha">A-Z</option>
+        </select>
         <button onClick={onClose} title="Hide authors">
           ✕
         </button>
@@ -104,19 +119,20 @@ export function AuthorsPanel({
         </div>
       ) : (
         <ol className="cites-list">
-          {authors.map((author, index) => {
+          {sortedAuthors.map((author) => {
             const key = authorKey(author);
             const count = markerCounts.get(key) ?? 0;
             const detail = authorDetail(author);
             const isExpanded = expanded.has(key);
+            const originalIndex = authors.findIndex((candidate) => authorKey(candidate) === key);
             return (
-              <li key={`${key}:${index}`} className="cites-item">
+              <li key={key} className="cites-item">
                 <div
                   className="cites-item-main"
                   onClick={() => toggleExpanded(key)}
                   title={isExpanded ? "Collapse" : "Show author details"}
                 >
-                  <span className="cites-item-label">{index + 1}.</span>
+                  <span className="cites-item-label">{originalIndex + 1}.</span>
                   <span className={`cites-item-text${isExpanded ? " expanded" : ""}`}>
                     <strong>{author.name}</strong>
                     {detail && <span className="cites-item-detail"> {detail}</span>}
@@ -143,6 +159,20 @@ export function AuthorsPanel({
       )}
     </aside>
   );
+}
+
+type AuthorSortMode = "author-list" | "alpha";
+
+function sortAuthors(authors: AuthorProfileRef[], mode: AuthorSortMode): AuthorProfileRef[] {
+  const sorted = [...authors];
+  if (mode === "author-list") return sorted;
+  return sorted.sort((a, b) => lastNameFirst(a.name).localeCompare(lastNameFirst(b.name)));
+}
+
+function lastNameFirst(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const last = parts.at(-1) ?? name;
+  return `${last} ${parts.slice(0, -1).join(" ")}`.toLowerCase();
 }
 
 function authorKey(author: AuthorProfileRef): string {
