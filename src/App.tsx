@@ -88,6 +88,7 @@ interface AppProps {
   onOpenedUrl?: (url: string, label?: string) => void;
   pendingRootRequest?: { id: number; input: string } | null;
   onPendingRootHandled?: (id: number) => void;
+  onPendingRootNewSession?: (id: number, input: string) => void;
 }
 
 export default function App({
@@ -97,6 +98,7 @@ export default function App({
   onOpenedUrl,
   pendingRootRequest = null,
   onPendingRootHandled,
+  onPendingRootNewSession,
 }: AppProps = {}) {
   const [input, setInput] = useState(initialInput);
   const [view, setView] = useState<MainView | null>(null);
@@ -278,6 +280,13 @@ export default function App({
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
     }
+  }
+
+  function handlePendingRootNewSession() {
+    const pending = pendingRootInput;
+    if (!pending) return;
+    onPendingRootNewSession?.(pending.id, pending.input);
+    setPendingRootInput(null);
   }
 
   async function openAuthorFromInput(raw: string, origin: { kind: "root" } | { kind: "paper"; parentId: string | null }) {
@@ -620,6 +629,11 @@ export default function App({
             <button onClick={handlePendingRootLoad} disabled={loading}>
               Add as root
             </button>
+            {onPendingRootNewSession && (
+              <button onClick={handlePendingRootNewSession}>
+                New window
+              </button>
+            )}
             <button
               onClick={() => {
                 onPendingRootHandled?.(pendingRootInput.id);

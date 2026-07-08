@@ -43,6 +43,14 @@ function ExtensionViewerApp() {
     });
   }
 
+  function handlePendingRootNewSession(id: number, input: string) {
+    handlePendingRootHandled(id);
+    const viewerUrl = chrome.runtime.getURL(
+      `extension-viewer.html?url=${encodeURIComponent(input)}`,
+    );
+    void chrome.tabs.create({ url: viewerUrl });
+  }
+
   return (
     <App
       title="paper browser"
@@ -51,6 +59,7 @@ function ExtensionViewerApp() {
       onOpenedUrl={syncViewerUrl}
       pendingRootRequest={pendingRootRequest}
       onPendingRootHandled={handlePendingRootHandled}
+      onPendingRootNewSession={handlePendingRootNewSession}
     />
   );
 }

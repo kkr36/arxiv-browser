@@ -43,6 +43,8 @@ declare namespace chrome {
     ): Promise<Tab>;
 
     function query(queryInfo: { url?: string | string[] }): Promise<Tab[]>;
+
+    function create(createProperties: { url?: string; active?: boolean }): Promise<Tab>;
   }
 
   namespace windows {
