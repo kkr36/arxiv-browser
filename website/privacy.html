@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Privacy Policy | Paper Browser</title>
+    <meta
+      name="description"
+      content="Privacy policy for the Paper Browser Chrome extension."
+    >
+    <link rel="stylesheet" href="assets/site.css">
+    <link rel="icon" href="assets/paper-browser-icon.png">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Paper Browser home">
+        <img src="assets/paper-browser-icon.png" alt="" width="40" height="40">
+        <span>Paper Browser</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="index.html">Home</a>
+        <a aria-current="page" href="privacy.html">Privacy</a>
+        <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="policy-main">
+      <section class="policy-hero">
+        <p class="eyebrow">Paper Browser Chrome extension</p>
+        <h1>Privacy Policy</h1>
+        <p class="lead">
+          Last updated: July 9, 2026
+        </p>
+        <p>
+          This policy explains how Paper Browser handles data when you use the Chrome extension. The repository also includes a local web app
+          for development; notes about that mode are included where relevant.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Summary</h2>
+        <p>
+          Paper Browser is a local-first PDF reader for research papers. The extension does not require an account with the developer, does not
+          use analytics, does not serve ads, and does not sell or rent user data. It does not send extension data to a Paper Browser-operated
+          server.
+        </p>
+        <p>
+          To provide its citation and paper-discovery features, the extension may process PDF content in your browser and may send minimal
+          bibliographic information to third-party scholarly services. Optional publishing to Semble sends session information to Semble only
+          when you choose that action.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Information Paper Browser handles</h2>
+        <p>
+          Chrome policy treats local processing as data handling, so this section includes information that stays on your device as well as
+          information that may be transmitted to third parties for the features you request.
+        </p>
+        <ul>
+          <li><strong>Current tab URL.</strong> When you click the extension button, Paper Browser reads the active tab URL so it can open that PDF or paper page in the extension viewer.</li>
+          <li><strong>PDF URLs, PDF bytes, and extracted PDF text.</strong> Paper Browser fetches and renders the PDF you ask it to open. It extracts text locally to detect citation markers, references, authors, and bibliography entries.</li>
+          <li><strong>Bibliographic queries and metadata.</strong> Citation text, titles, author names, DOIs, arXiv IDs, paper URLs, and similar metadata may be used to resolve cited papers and author pages.</li>
+          <li><strong>Browsing activity needed for the feature.</strong> The extension handles only the tab or paper URLs you ask it to process and the follow-on paper URLs opened through the viewer. It does not monitor your general browsing history.</li>
+          <li><strong>Local settings and session state.</strong> Panel widths, graph node positions, citation-resolution cache entries, and pending viewer handoff state may be stored locally in the browser.</li>
+          <li><strong>Optional API keys.</strong> If you enter OpenAlex or Semantic Scholar API keys in the extension options, they are stored in Chrome local storage and attached only to requests to the matching service. If you enter and remember a Semble API key, it is stored in the browser and sent to Semble when you publish.</li>
+          <li><strong>Exports and imports.</strong> HTML and Obsidian exports are generated in your browser and saved through Chrome downloads. If you resume a session from an export, that file is read in your browser.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section">
+        <h2>How the information is used</h2>
+        <ul>
+          <li>To load, render, and annotate PDFs.</li>
+          <li>To detect in-text citations, bibliography entries, and author names.</li>
+          <li>To resolve cited papers, author pages, open-access PDFs, and metadata previews.</li>
+          <li>To maintain the in-viewer navigation stack and exploration graph.</li>
+          <li>To create local session exports or, if you choose, publish a session to Semble.</li>
+          <li>To remember local settings and optional API keys you save.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section">
+        <h2>Third parties data may be shared with</h2>
+        <p>
+          Paper Browser shares data only as needed for user-facing features you request. Depending on what you open and which controls you use,
+          the extension may contact these parties:
+        </p>
+        <ul>
+          <li><strong>PDF and paper hosts you open.</strong> This includes arXiv, publisher sites, conference proceedings sites, DOI targets, NBER, NeurIPS, IEEE Xplore, and other URLs you ask Paper Browser to fetch. Those hosts receive the request for their content and may receive cookies or credentials already associated with that site in your browser.</li>
+          <li><strong>arXiv, Crossref, OpenAlex, Unpaywall, and Semantic Scholar.</strong> Paper Browser may send identifiers, citation strings, titles, author names, DOIs, arXiv IDs, and related bibliographic search terms to retrieve metadata or locate open PDFs.</li>
+          <li><strong>DuckDuckGo.</strong> If you use the public PDF search fallback, Paper Browser may send a paper title or reference-derived search query to DuckDuckGo to find public PDF candidates.</li>
+          <li><strong>Semble.</strong> If you choose "Publish to Semble", Paper Browser sends your Semble API key to Semble as authentication and sends the collection name, description, selected visibility, paper or author titles, public URLs, and generated notes needed to create the collection and cards.</li>
+          <li><strong>Chrome and your browser.</strong> Chrome stores extension settings locally, manages downloads, and enforces extension permissions.</li>
+        </ul>
+        <p>
+          Paper Browser does not transfer user data for advertising, profiling, sale, or unrelated market research.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Chrome Web Store Limited Use disclosure</h2>
+        <ul>
+          <li><strong>Allowed use.</strong> Paper Browser uses extension permissions and handled data only to provide or improve its PDF reading, citation preview, paper discovery, author discovery, session navigation, export, and optional publishing features.</li>
+          <li><strong>Allowed transfer.</strong> Paper Browser transfers data to third parties only when necessary to provide those user-facing features, when you explicitly publish to Semble, or if required for legal or security reasons.</li>
+          <li><strong>No advertising use.</strong> Paper Browser does not use or transfer user data for personalized, retargeted, or interest-based advertising.</li>
+          <li><strong>No human review by default.</strong> The developer does not receive extension data and does not allow humans to read it. If you voluntarily send data for support, it will be used only to respond to your request, unless disclosure is required for legal or security reasons.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section">
+        <h2>Extension permissions</h2>
+        <ul>
+          <li><strong>activeTab.</strong> Used after you click the extension button to read the current tab URL and open that paper in the viewer.</li>
+          <li><strong>tabs.</strong> Used to replace the current tab with the extension viewer, find an existing viewer tab, focus it, and open a new viewer tab when requested.</li>
+          <li><strong>storage.</strong> Used for local options, API keys, and pending viewer handoff state.</li>
+          <li><strong>downloads.</strong> Used to save session exports generated by the extension.</li>
+          <li><strong>host permissions for http and https URLs.</strong> Used by the background service worker to fetch PDFs, metadata, and paper pages from the sites needed for the viewer and citation-resolution features.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section">
+        <h2>Retention and controls</h2>
+        <ul>
+          <li>Local settings and API keys remain in browser storage until you clear them, uninstall the extension, or clear the relevant browser data.</li>
+          <li>OpenAlex and Semantic Scholar keys can be saved, changed, or cleared from the extension options page.</li>
+          <li>The Semble key is stored only if you choose "Remember key" in the Semble publishing dialog; clearing browser site data for the extension removes it.</li>
+          <li>Downloaded HTML and Obsidian exports are files on your device. You control how long you keep or share them.</li>
+          <li>Collections or cards published to Semble are controlled through Semble and are subject to Semble's own policies and deletion tools.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section">
+        <h2>Security</h2>
+        <p>
+          Built-in metadata services and Semble are contacted over HTTPS. PDF and paper requests use the URL you choose or the URL resolved for
+          the paper. If you ask Paper Browser to load an HTTP URL, that connection uses HTTP and is not encrypted by Paper Browser.
+        </p>
+        <p>
+          API keys saved in browser storage are not included in published extension code. They are sent only to the service they belong to:
+          OpenAlex keys to OpenAlex, Semantic Scholar keys to Semantic Scholar, and Semble keys to Semble.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Local web app and development mode</h2>
+        <p>
+          The repository includes a Vite web app used for local development. In that mode, proxy endpoints run on your own machine to work
+          around browser CORS limits and to keep optional developer API keys in a local <code>.env.local</code> file. Those local proxies are
+          not a hosted Paper Browser service.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Changes</h2>
+        <p>
+          This policy may be updated when Paper Browser's features or data handling change. The updated date at the top of this page will
+          change when the policy is revised.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Contact</h2>
+        <p>
+          For privacy questions or support, contact the project through
+          <a href="https://github.com/kkr36/arxiv-browser/issues" target="_blank" rel="noreferrer">GitHub issues</a>
+          or by email at <a href="mailto:kkr36@cornell.edu">kkr36@cornell.edu</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Paper Browser</span>
+      <a href="index.html">Home</a>
+      <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">GitHub</a>
+    </footer>
+  </body>
+</html>

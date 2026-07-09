@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Paper Browser</title>
+    <meta
+      name="description"
+      content="Paper Browser is a Chrome extension for reading research PDFs, previewing citations, and following cited papers."
+    >
+    <link rel="stylesheet" href="assets/site.css">
+    <link rel="icon" href="assets/paper-browser-icon.png">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Paper Browser home">
+        <img src="assets/paper-browser-icon.png" alt="" width="40" height="40">
+        <span>Paper Browser</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a aria-current="page" href="index.html">Home</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Chrome extension for research PDFs</p>
+          <h1>Paper Browser</h1>
+          <p class="lead">
+            Read scholarly PDFs in Chrome, preview cited work inline, and follow citation trails
+            without losing the thread of the paper you started from.
+          </p>
+          <div class="actions" aria-label="Project links">
+            <a class="button primary" href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">
+              View on GitHub
+            </a>
+            <a class="button" href="privacy.html">Privacy Policy</a>
+            <span class="button disabled" aria-disabled="true">Chrome Web Store coming soon</span>
+          </div>
+        </div>
+
+        <div class="product-visual" aria-label="Paper Browser citation preview mockup">
+          <div class="visual-toolbar">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>paper-browser</strong>
+          </div>
+          <div class="visual-body">
+            <div class="paper-pane">
+              <p class="paper-line wide"></p>
+              <p class="paper-line medium"></p>
+              <p class="paper-line">
+                <span></span><mark>[12]</mark><span></span>
+              </p>
+              <p class="paper-line short"></p>
+              <div class="citation-popover">
+                <strong>Attention Is All You Need</strong>
+                <span>Vaswani et al., 2017</span>
+                <small>Open cited PDF</small>
+              </div>
+            </div>
+            <div class="graph-pane">
+              <span class="node root"></span>
+              <span class="node child one"></span>
+              <span class="node child two"></span>
+              <span class="edge e1"></span>
+              <span class="edge e2"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band">
+        <div class="section-heading">
+          <p class="eyebrow">What it does</p>
+          <h2>Explore a paper through its references.</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>Annotated citations</h3>
+            <p>PDF citation markers become hoverable previews with title, authors, year, venue, and abstracts when metadata is available.</p>
+          </article>
+          <article class="feature">
+            <h3>Follow PDFs in place</h3>
+            <p>Click a citation to resolve and open the cited paper in the same viewer, with back and forward navigation for the trail.</p>
+          </article>
+          <article class="feature">
+            <h3>Session exports</h3>
+            <p>Save the exploration graph as a self-contained HTML page, an Obsidian vault, or an optional Semble collection.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="privacy-summary">
+        <div>
+          <p class="eyebrow">Privacy at a glance</p>
+          <h2>Local-first, no ads, no developer data server.</h2>
+        </div>
+        <p>
+          Paper Browser processes PDFs and citation metadata to provide its reader features. It does not sell data, run personalized advertising,
+          or send extension data to a Paper Browser-operated server. Some URLs, citation text, and metadata queries are sent to third-party
+          scholarly services only as needed to resolve papers and metadata.
+        </p>
+        <a class="text-link" href="privacy.html">Read the full Privacy Policy</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Paper Browser</span>
+      <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">kkr36/arxiv-browser</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </footer>
+  </body>
+</html>
