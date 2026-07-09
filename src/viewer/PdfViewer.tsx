@@ -49,6 +49,10 @@ interface TooltipState {
 }
 
 const SCALE = 1.5;
+const CANVAS_QUALITY_SCALE = 1.5;
+const MIN_CANVAS_OUTPUT_SCALE = 2;
+const MAX_CANVAS_OUTPUT_SCALE = 4;
+const MAX_CANVAS_PIXELS = 20_000_000;
 const TOOLTIP_HIDE_DELAY_MS = 180;
 const EXPANDED_CONTROLS_WIDTH = 208;
 const EXPANDED_CONTROLS_HEIGHT = 172;
@@ -81,6 +85,7 @@ export function PdfViewer({
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderVersion, setRenderVersion] = useState(0);
+  const [renderPixelRatio, setRenderPixelRatio] = useState(getDevicePixelRatio);
   const [controlsCompact, setControlsCompact] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [controlsManuallyMinimized, setControlsManuallyMinimized] = useState(false);
@@ -107,6 +112,24 @@ export function PdfViewer({
   }
 
   useEffect(() => () => cancelTooltipHide(), []);
+
+  useEffect(() => {
+    let frame = 0;
+    const updatePixelRatio = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setRenderPixelRatio((prev) => {
+          const next = getDevicePixelRatio();
+          return Math.abs(prev - next) > 0.01 ? next : prev;
+        });
+      });
+    };
+    window.addEventListener("resize", updatePixelRatio);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePixelRatio);
+    };
+  }, []);
 
   useEffect(() => {
     if (!showCitationHighlights) closeTooltip();
@@ -212,8 +235,9 @@ export function PdfViewer({
         if (isStale()) return;
         const viewport = page.getViewport({ scale: SCALE });
         // Render at device resolution but lay out at CSS pixels, so text
-        // isn't blurry on high-DPI displays.
-        const outputScale = window.devicePixelRatio || 1;
+        // isn't blurry on high-DPI displays. The extra capped oversampling
+        // makes dense, thin-font papers closer to native PDF viewer quality.
+        const outputScale = canvasOutputScale(viewport.width, viewport.height, renderPixelRatio);
 
         const pageDiv = document.createElement("div");
         pageDiv.className = "pdf-page";
@@ -227,8 +251,8 @@ export function PdfViewer({
         pageDiv.style.setProperty("--scale-factor", String(viewport.scale));
 
         const canvas = document.createElement("canvas");
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.width = Math.ceil(viewport.width * outputScale);
+        canvas.height = Math.ceil(viewport.height * outputScale);
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
         pageDiv.appendChild(canvas);
@@ -247,10 +271,15 @@ export function PdfViewer({
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
+          const renderScaleX = canvas.width / viewport.width;
+          const renderScaleY = canvas.height / viewport.height;
           await page.render({
             canvasContext: ctx,
             viewport,
-            transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
+            transform:
+              renderScaleX !== 1 || renderScaleY !== 1
+                ? [renderScaleX, 0, 0, renderScaleY, 0, 0]
+                : undefined,
           }).promise;
         }
         if (isStale()) return;
@@ -317,6 +346,7 @@ export function PdfViewer({
     authorMarkersByPage,
     showCitationHighlights,
     showAuthorHighlights,
+    renderPixelRatio,
   ]);
 
   useEffect(() => {
@@ -650,6 +680,19 @@ export function PdfViewer({
       )}
     </div>
   );
+}
+
+function getDevicePixelRatio(): number {
+  return window.devicePixelRatio || 1;
+}
+
+function canvasOutputScale(width: number, height: number, devicePixelRatio: number): number {
+  const desired = Math.min(
+    Math.max(devicePixelRatio * CANVAS_QUALITY_SCALE, MIN_CANVAS_OUTPUT_SCALE),
+    MAX_CANVAS_OUTPUT_SCALE,
+  );
+  const maxForPage = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(width * height, 1));
+  return Math.max(1, Math.min(desired, maxForPage));
 }
 
 function createPdfLinkService(
