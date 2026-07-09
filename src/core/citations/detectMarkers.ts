@@ -24,6 +24,18 @@ const NARRATIVE_RE = new RegExp(
   "gu",
 );
 
+// Author-only narrative mention with the year suppressed: "Bommasani et al.
+// find that …", "Kwon and Ke show …" (\citet/\citeauthor). The "et al." or
+// second author makes it unmistakably a citation, and it must NOT be followed
+// by a year (that case is a normal narrative cite, handled above). Resolved by
+// surname alone, so only linked when that surname maps to a single reference.
+const NARRATIVE_AUTHOR_ONLY_RE = new RegExp(
+  String.raw`\b(${AUTHOR_YEAR_SURNAME})` +
+    String.raw`(?:\s+et al\.?|\s+(?:and|&)\s+${AUTHOR_YEAR_SURNAME})` +
+    String.raw`(?!\s*[,;([]?\s*(?:19|20)\d{2})`,
+  "gu",
+);
+
 export type RawMarker = Omit<CitationMarker, "entryIndices">;
 
 /** Character range within a page's text where markers must not be reported. */
@@ -172,6 +184,20 @@ function narrativeMarkers(page: PageText, match: RegExpExecArray): RawMarker[] {
   return markers;
 }
 
+/** "Bommasani et al. find …" -> one surname-only marker spanning the mention. */
+function authorOnlyMarkers(page: PageText, match: RegExpExecArray): RawMarker[] {
+  return [
+    {
+      id: `p${page.pageNumber}-o${match.index}`,
+      page: page.pageNumber,
+      start: match.index,
+      end: match.index + match[0].length,
+      raw: match[0],
+      authorSurnames: [match[1]],
+    },
+  ];
+}
+
 // Editorial lead-ins before a cited work: "see", "see also", "e.g.", "i.e.",
 // "cf.", "also", "viz.", each possibly dotted and comma/space separated, and
 // possibly stacked ("see, e.g.,"). Stripped so surname extraction sees the
@@ -287,6 +313,15 @@ export function detectMarkersOnPage(
       if (excluded(m.index)) continue;
       if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
       markers.push(...narrativeMarkers(page, m));
+    }
+
+    // Author-only mentions last: they must not shadow a year-bearing cite at
+    // the same spot ("Bommasani et al., 2022"), so skip any that overlap one.
+    NARRATIVE_AUTHOR_ONLY_RE.lastIndex = 0;
+    while ((m = NARRATIVE_AUTHOR_ONLY_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
+      markers.push(...authorOnlyMarkers(page, m));
     }
   }
 

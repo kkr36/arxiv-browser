@@ -25,6 +25,7 @@ export function matchMarkersToEntries(markers: RawMarker[], entries: BibEntry[])
   const byNumber = new Map<number, number>();
   const byCitationKey = new Map<string, number>();
   const byAuthorYear = new Map<string, number>();
+  const bySurname = new Map<string, Set<number>>();
   for (const e of entries) {
     if (e.number !== undefined && !byNumber.has(e.number)) byNumber.set(e.number, e.index);
     if (e.citationKey) {
@@ -34,6 +35,8 @@ export function matchMarkersToEntries(markers: RawMarker[], entries: BibEntry[])
     if (e.authorYearKey) {
       const key = keyOf(e.authorYearKey.surname, e.authorYearKey.year);
       if (!byAuthorYear.has(key)) byAuthorYear.set(key, e.index);
+      const surname = normalizeSurname(e.authorYearKey.surname);
+      (bySurname.get(surname) ?? bySurname.set(surname, new Set()).get(surname)!).add(e.index);
     }
   }
 
@@ -58,6 +61,17 @@ export function matchMarkersToEntries(markers: RawMarker[], entries: BibEntry[])
             m.authorYears
               .map((ay) => byAuthorYear.get(keyOf(ay.surname, ay.year)))
               .filter((i): i is number => i !== undefined),
+          ),
+        ];
+      } else if (m.authorSurnames) {
+        // Year unknown — only resolve when the surname maps to exactly one
+        // reference, otherwise we can't tell which year is meant.
+        entryIndices = [
+          ...new Set(
+            m.authorSurnames.flatMap((s) => {
+              const idxs = bySurname.get(normalizeSurname(s));
+              return idxs && idxs.size === 1 ? [...idxs] : [];
+            }),
           ),
         ];
       }

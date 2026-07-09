@@ -47,6 +47,9 @@ export interface CitationMarker {
   citationKeys?: string[];
   /** One per cited work — multi-cites like "(A, 2019; B, 2020)" carry several. */
   authorYears?: { surname: string; year: string }[];
+  /** Narrative author-only mentions with no year ("Bommasani et al. find …").
+   * Resolved by surname alone, and only when the surname is unambiguous. */
+  authorSurnames?: string[];
   entryIndices: number[];
 }
 

@@ -22,6 +22,8 @@ export interface Expected {
   authorYears?: string[];
   /** numbered refs this text must yield. */
   refNumbers?: number[];
+  /** author-only mentions (no year) that must resolve, as lower-cased surname. */
+  authorOnly?: string[];
 }
 
 export interface DetectionCase {
@@ -99,6 +101,40 @@ export const DETECTION_CASES: DetectionCase[] = [
     text: "37th Conference on Neural Information Processing Systems (NeurIPS 2023).",
     expect: {},
     forbid: { authorYears: ["neurips|2023", "nips|2023"] },
+  },
+
+  // ---- arXiv:2403.07183: \citet / \citeauthor narrative forms ----
+  {
+    name: "citet: 'Author et al. (year)' narrative resolves",
+    style: "author-year",
+    text: "conditional probabilities. Tulchinskii et al. (2023) show that these methods",
+    expect: { authorYears: ["tulchinskii|2023"] },
+  },
+  {
+    name: "citeauthor: author-only 'Author et al. find …' (no year) resolves by surname",
+    style: "author-year",
+    text: "examining individual cases of use. Bommasani et al. find that the monocultural use",
+    expect: { authorOnly: ["bommasani"] },
+  },
+  {
+    name: "citeauthor: a second author-only mention 'Cao et al.'",
+    style: "author-year",
+    text: "detected by evaluating hiring decisions one-by-one. Cao et al. find that prompts",
+    expect: { authorOnly: ["cao"] },
+  },
+  {
+    name: "author-only inside a parenthetical cite is not double-counted or mis-resolved",
+    style: "author-year",
+    text: "output homogenization (Bommasani et al., 2022; Kleinberg & Raghavan, 2021).",
+    expect: { authorYears: ["bommasani|2022"] },
+    forbid: { authorOnly: ["kleinberg"] },
+  },
+  {
+    name: "author-only 'et al.' with no matching reference must not resolve",
+    style: "author-year",
+    text: "as many practitioners et al. have noted in passing,",
+    expect: {},
+    forbid: { authorOnly: ["practitioners"] },
   },
 
   // ---- arXiv:2312.09841: parenthetical author-year, semicolon-separated ----

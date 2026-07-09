@@ -29,35 +29,40 @@ const idOf = (surname: string, year: string) => `${surname.toLowerCase()}|${year
  * exist). Detection is deliberately liberal; matching against real references
  * is the filter, so the user-visible contract is what *resolves*.
  */
-function resolve(text: string, style: Style, expect: { authorYears?: string[]; refNumbers?: number[] }) {
+function resolve(text: string, style: Style, expect: { authorYears?: string[]; refNumbers?: number[]; authorOnly?: string[] }) {
   const entries = [
     ...(expect.authorYears ?? []).map((ay, i) => {
       const [surname, year] = ay.split("|");
       return { index: i, rawText: ay, authorYearKey: { surname, year } };
     }),
     ...(expect.refNumbers ?? []).map((n, i) => ({ index: 1000 + i, rawText: `[${n}]`, number: n })),
+    ...(expect.authorOnly ?? []).map((s, i) => ({ index: 2000 + i, rawText: s, authorYearKey: { surname: s, year: "2099" } })),
   ];
   const markers = detectMarkersOnPage(pageOf(text), undefined, style);
   const matched = matchMarkersToEntries(markers, entries);
   const resolvedAY = new Set<string>();
   const resolvedRN = new Set<number>();
+  const resolvedSurname = new Set<string>();
   for (const m of matched) {
     for (const ay of m.authorYears ?? []) resolvedAY.add(idOf(ay.surname, ay.year));
     for (const n of m.refNumbers ?? []) if (m.entryIndices.length) resolvedRN.add(n);
+    for (const s of m.authorSurnames ?? []) if (m.entryIndices.length) resolvedSurname.add(s.toLowerCase());
   }
-  return { resolvedAY, resolvedRN };
+  return { resolvedAY, resolvedRN, resolvedSurname };
 }
 
 console.log("\ninline citation detection + resolution:");
 for (const c of DETECTION_CASES) {
-  const { resolvedAY, resolvedRN } = resolve(c.text, c.style, c.expect);
+  const { resolvedAY, resolvedRN, resolvedSurname } = resolve(c.text, c.style, c.expect);
   const missing: string[] = [];
   for (const ay of c.expect.authorYears ?? []) if (!resolvedAY.has(ay)) missing.push(ay);
   for (const n of c.expect.refNumbers ?? []) if (!resolvedRN.has(n)) missing.push(`[${n}]`);
+  for (const s of c.expect.authorOnly ?? []) if (!resolvedSurname.has(s)) missing.push(`${s} (author-only)`);
   // Forbidden works must not resolve to any reference.
   const wrong: string[] = [];
   for (const ay of c.forbid?.authorYears ?? []) if (resolvedAY.has(ay)) wrong.push(ay);
   for (const n of c.forbid?.refNumbers ?? []) if (resolvedRN.has(n)) wrong.push(`[${n}]`);
+  for (const s of c.forbid?.authorOnly ?? []) if (resolvedSurname.has(s)) wrong.push(`${s} (author-only)`);
 
   if (missing.length === 0 && wrong.length === 0) {
     pass(c.name);
