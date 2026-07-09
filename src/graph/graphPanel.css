@@ -98,7 +98,7 @@
 
 .graph-tools {
   display: grid;
-  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
   padding: 8px 12px;
@@ -127,6 +127,32 @@
 .graph-tools button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.graph-manual-citation {
+  position: relative;
+  width: 100%;
+}
+
+.graph-manual-citation > button {
+  width: 100%;
+}
+
+.graph-manual-citation-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-width: min(560px, calc(100vw - 32px));
+  padding: 8px;
+  background: #1f1f24;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
 }
 
 .graph-link-arrow {

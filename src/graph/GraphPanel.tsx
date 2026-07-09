@@ -53,11 +53,13 @@ export function GraphPanel({
   const [manualPositions, setManualPositions] = useState(initialManualPositions);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [manualCitationOpen, setManualCitationOpen] = useState(false);
   const [sembleOpen, setSembleOpen] = useState(false);
   const [linkFromId, setLinkFromId] = useState("");
   const [linkToId, setLinkToId] = useState("");
   const [sortMode, setSortMode] = useState<GraphSortMode>("manual");
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const manualCitationRef = useRef<HTMLDivElement | null>(null);
   const layout = useMemo(
     () => layoutWithManualPositions(baseLayout, graph, manualPositions),
     [baseLayout, graph, manualPositions],
@@ -97,6 +99,22 @@ export function GraphPanel({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!manualCitationOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!manualCitationRef.current?.contains(e.target as Node)) setManualCitationOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setManualCitationOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [manualCitationOpen]);
 
   function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
     resizeDrag.current = { x: e.clientX, width };
@@ -197,6 +215,7 @@ export function GraphPanel({
   function handleAddManualEdge() {
     if (!linkFromId || !linkToId || linkFromId === linkToId) return;
     onAddEdge(linkFromId, linkToId);
+    setManualCitationOpen(false);
   }
 
   function handleSort(mode: GraphSortMode) {
@@ -303,35 +322,47 @@ export function GraphPanel({
             <option value="citations-desc">Citations ↓</option>
             <option value="citations-asc">Citations ↑</option>
           </select>
-          <select
-            value={linkFromId}
-            onChange={(e) => setLinkFromId(e.currentTarget.value)}
-            title="Parent node"
-          >
-            {graph.nodes.map((node) => (
-              <option key={node.id} value={node.id}>
-                {truncate(node.title, 36)}
-              </option>
-            ))}
-          </select>
-          <span className="graph-link-arrow">→</span>
-          <select
-            value={linkToId}
-            onChange={(e) => setLinkToId(e.currentTarget.value)}
-            title="Child node"
-          >
-            {graph.nodes.map((node) => (
-              <option key={node.id} value={node.id}>
-                {truncate(node.title, 36)}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleAddManualEdge}
-            disabled={!linkFromId || !linkToId || linkFromId === linkToId}
-          >
-            Link
-          </button>
+          <div className="graph-manual-citation" ref={manualCitationRef}>
+            <button
+              onClick={() => setManualCitationOpen((open) => !open)}
+              title="Manually connect two papers with a citation edge"
+            >
+              Manually Connect Nodes
+            </button>
+            {manualCitationOpen && (
+              <div className="graph-manual-citation-menu">
+                <select
+                  value={linkFromId}
+                  onChange={(e) => setLinkFromId(e.currentTarget.value)}
+                  title="Paper 1"
+                >
+                  {graph.nodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {truncate(node.title, 48)}
+                    </option>
+                  ))}
+                </select>
+                <span className="graph-link-arrow">→</span>
+                <select
+                  value={linkToId}
+                  onChange={(e) => setLinkToId(e.currentTarget.value)}
+                  title="Paper 2"
+                >
+                  {graph.nodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {truncate(node.title, 48)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleAddManualEdge}
+                  disabled={!linkFromId || !linkToId || linkFromId === linkToId}
+                >
+                  Link
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
