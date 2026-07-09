@@ -581,20 +581,14 @@ export default function App({
             Resume session
           </button>
           <button
-            onClick={() => {
-              setCitationsOpen((o) => !o);
-              setAuthorsOpen(false);
-            }}
+            onClick={() => setCitationsOpen((o) => !o)}
             disabled={view?.kind !== "paper"}
             title="List of this paper's parsed references"
           >
             {citationsOpen ? "Hide citations" : "Citations"}
           </button>
           <button
-            onClick={() => {
-              setAuthorsOpen((o) => !o);
-              setCitationsOpen(false);
-            }}
+            onClick={() => setAuthorsOpen((o) => !o)}
             disabled={view?.kind !== "paper"}
             title="List of this paper's authors"
           >

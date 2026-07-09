@@ -50,6 +50,9 @@ interface TooltipState {
 
 const SCALE = 1.5;
 const TOOLTIP_HIDE_DELAY_MS = 180;
+const EXPANDED_CONTROLS_WIDTH = 208;
+const EXPANDED_CONTROLS_HEIGHT = 172;
+const CONTROLS_OFFSET = 16;
 
 export function PdfViewer({
   doc,
@@ -70,6 +73,7 @@ export function PdfViewer({
 }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const markerLookupRef = useRef(new Map<string, CitationMarker>());
   const authorMarkerLookupRef = useRef(new Map<string, AuthorMarker>());
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,6 +81,9 @@ export function PdfViewer({
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderVersion, setRenderVersion] = useState(0);
+  const [controlsCompact, setControlsCompact] = useState(false);
+  const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const [controlsManuallyMinimized, setControlsManuallyMinimized] = useState(false);
 
   function cancelTooltipHide() {
     if (!tooltipHideTimerRef.current) return;
@@ -104,6 +111,66 @@ export function PdfViewer({
   useEffect(() => {
     if (!showCitationHighlights) closeTooltip();
   }, [showCitationHighlights]);
+
+  useEffect(() => {
+    let frame = 0;
+    const updateControlLayout = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const scroll = scrollRef.current;
+        const container = containerRef.current;
+        if (!scroll || !container) return;
+        const scrollRect = scroll.getBoundingClientRect();
+        const controlRect = {
+          left: scrollRect.left + CONTROLS_OFFSET,
+          right: scrollRect.left + CONTROLS_OFFSET + EXPANDED_CONTROLS_WIDTH,
+          top: scrollRect.top + CONTROLS_OFFSET,
+          bottom: scrollRect.top + CONTROLS_OFFSET + EXPANDED_CONTROLS_HEIGHT,
+        };
+        const overlapsPage = [...container.querySelectorAll<HTMLElement>(".pdf-page")].some(
+          (page) => rectsOverlap(controlRect, page.getBoundingClientRect()),
+        );
+        setControlsCompact(overlapsPage);
+      });
+    };
+
+    const scroll = scrollRef.current;
+    const container = containerRef.current;
+    updateControlLayout();
+    window.addEventListener("resize", updateControlLayout);
+    scroll?.addEventListener("scroll", updateControlLayout, { passive: true });
+    const resizeObserver = new ResizeObserver(updateControlLayout);
+    if (scroll) resizeObserver.observe(scroll);
+    if (container) resizeObserver.observe(container);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateControlLayout);
+      scroll?.removeEventListener("scroll", updateControlLayout);
+      resizeObserver.disconnect();
+    };
+  }, [renderVersion, isFullscreen]);
+
+  useEffect(() => {
+    if (!controlsCompact && !controlsManuallyMinimized) setControlsMenuOpen(false);
+  }, [controlsCompact, controlsManuallyMinimized]);
+
+  useEffect(() => {
+    if (!controlsMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (controlsRef.current?.contains(event.target as Node)) return;
+      setControlsMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setControlsMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [controlsMenuOpen]);
 
   useEffect(() => {
     const lookup = new Map<string, CitationMarker>();
@@ -418,51 +485,55 @@ export function PdfViewer({
       });
   }
 
-  return (
-    <div ref={scrollRef} className={isFullscreen ? "pdf-viewer-scroll fullscreen" : "pdf-viewer-scroll"}>
-      <div className="pdf-floating-controls" aria-label="PDF view controls">
-        <div className="pdf-icon-row">
-          {onToggleFullscreen && (
-            <button
-              type="button"
-              className="pdf-icon-button"
-              onClick={onToggleFullscreen}
-              title={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
-              aria-label={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
-            >
-              {isFullscreen ? (
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M8 3v5H3" />
-                  <path d="M16 3v5h5" />
-                  <path d="M8 21v-5H3" />
-                  <path d="M16 21v-5h5" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 8V3h5" />
-                  <path d="M21 8V3h-5" />
-                  <path d="M3 16v5h5" />
-                  <path d="M21 16v5h-5" />
-                </svg>
-              )}
-            </button>
+  const actionButtons = (
+    <div className="pdf-icon-row">
+      {onToggleFullscreen && (
+        <button
+          type="button"
+          className="pdf-icon-button"
+          onClick={onToggleFullscreen}
+          title={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
+          aria-label={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
+        >
+          {isFullscreen ? (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 3v5H3" />
+              <path d="M16 3v5h5" />
+              <path d="M8 21v-5H3" />
+              <path d="M16 21v-5h5" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 8V3h5" />
+              <path d="M21 8V3h-5" />
+              <path d="M3 16v5h5" />
+              <path d="M21 16v5h-5" />
+            </svg>
           )}
-          {onDownloadPdf && (
-            <button
-              type="button"
-              className="pdf-icon-button"
-              onClick={onDownloadPdf}
-              title="Download PDF"
-              aria-label="Download PDF"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3v12" />
-                <path d="m7 10 5 5 5-5" />
-                <path d="M5 21h14" />
-              </svg>
-            </button>
-          )}
-        </div>
+        </button>
+      )}
+      {onDownloadPdf && (
+        <button
+          type="button"
+          className="pdf-icon-button"
+          onClick={onDownloadPdf}
+          title="Download PDF"
+          aria-label="Download PDF"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
+  const displayOptions = (
+    <>
+      <div className="pdf-control-divider" aria-hidden="true" />
+      <div className="pdf-display-options">
         <label
           className="pdf-highlight-toggle"
           title="Browser-added citation highlights. Turn off to use the PDF's original citation links."
@@ -484,6 +555,81 @@ export function PdfViewer({
           />
           <span>Author highlights</span>
         </label>
+      </div>
+    </>
+  );
+
+  const shouldShowCompactControls = controlsCompact || controlsManuallyMinimized;
+
+  return (
+    <div ref={scrollRef} className={isFullscreen ? "pdf-viewer-scroll fullscreen" : "pdf-viewer-scroll"}>
+      <div
+        ref={controlsRef}
+        className={
+          shouldShowCompactControls ? "pdf-floating-controls compact" : "pdf-floating-controls"
+        }
+        aria-label="PDF view controls"
+      >
+        {shouldShowCompactControls ? (
+          <>
+            <button
+              type="button"
+              className="pdf-icon-button pdf-compact-trigger"
+              onClick={() => {
+                if (controlsManuallyMinimized && !controlsCompact) {
+                  setControlsManuallyMinimized(false);
+                  setControlsMenuOpen(false);
+                  return;
+                }
+                setControlsManuallyMinimized(false);
+                setControlsMenuOpen((open) => !open);
+              }}
+              aria-label={
+                controlsManuallyMinimized && !controlsCompact
+                  ? "Expand PDF controls"
+                  : "PDF view controls"
+              }
+              aria-expanded={controlsCompact ? controlsMenuOpen : undefined}
+              aria-haspopup={controlsCompact ? "menu" : undefined}
+              title={
+                controlsManuallyMinimized && !controlsCompact
+                  ? "Expand controls"
+                  : "PDF view controls"
+              }
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
+              </svg>
+            </button>
+            {controlsMenuOpen && (
+              <div className="pdf-compact-menu">
+                {actionButtons}
+                {displayOptions}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="pdf-minimize-button"
+              onClick={() => {
+                setControlsManuallyMinimized(true);
+                setControlsMenuOpen(false);
+              }}
+              aria-label="Minimize PDF controls"
+              title="Minimize controls"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 12h10" />
+              </svg>
+            </button>
+            {actionButtons}
+            {displayOptions}
+          </>
+        )}
       </div>
       {renderError && <div className="status-line error">{renderError}</div>}
       <div ref={containerRef} className="pdf-viewer" />
@@ -580,4 +726,15 @@ function createPdfLinkService(
     },
     async executeSetOCGState(_action: object) {},
   };
+}
+
+interface RectLike {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function rectsOverlap(a: RectLike, b: RectLike): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
