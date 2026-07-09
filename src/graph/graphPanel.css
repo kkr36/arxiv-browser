@@ -176,10 +176,57 @@
   stroke: #55555f;
   stroke-width: 1.5;
   fill: none;
+  pointer-events: none;
+}
+
+.graph-edge-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  cursor: pointer;
+}
+
+.graph-edge-group:hover .graph-edge,
+.graph-edge-group.selected .graph-edge {
+  stroke: #7ab8ff;
+  stroke-width: 2;
 }
 
 .graph-arrow-head {
   fill: #55555f;
+}
+
+.graph-arrow-head-selected {
+  fill: #7ab8ff;
+}
+
+.graph-edge-group:hover .graph-edge[marker-end],
+.graph-edge-group.selected .graph-edge[marker-end] {
+  marker-end: url("#graph-arrow-selected");
+}
+
+.graph-edge-remove {
+  cursor: pointer;
+}
+
+.graph-edge-remove circle {
+  fill: #2a2a33;
+  stroke: rgba(255, 255, 255, 0.3);
+}
+
+.graph-edge-remove path {
+  stroke: #c9c9d1;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.graph-edge-remove:hover circle {
+  fill: #5a2530;
+  stroke: #ff6b6b;
+}
+
+.graph-edge-remove:hover path {
+  stroke: #ff6b6b;
 }
 
 .graph-node {

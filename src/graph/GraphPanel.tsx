@@ -17,6 +17,11 @@ interface GraphPanelProps {
   onSelectNode: (node: GraphNode) => void;
   onRemoveNode: (id: string) => void;
   onAddEdge: (from: string, to: string) => void;
+  onRemoveEdge: (from: string, to: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   onClose: () => void;
 }
 
@@ -44,6 +49,11 @@ export function GraphPanel({
   onSelectNode,
   onRemoveNode,
   onAddEdge,
+  onRemoveEdge,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
   onClose,
 }: GraphPanelProps) {
   const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
@@ -55,6 +65,7 @@ export function GraphPanel({
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [manualCitationOpen, setManualCitationOpen] = useState(false);
   const [sembleOpen, setSembleOpen] = useState(false);
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
   const [linkFromId, setLinkFromId] = useState("");
   const [linkToId, setLinkToId] = useState("");
   const [sortMode, setSortMode] = useState<GraphSortMode>("manual");
@@ -83,6 +94,12 @@ export function GraphPanel({
     setLinkFromId((id) => (graph.nodes.some((n) => n.id === id) ? id : graph.nodes[0]?.id ?? ""));
     setLinkToId((id) => (graph.nodes.some((n) => n.id === id) ? id : graph.nodes[1]?.id ?? ""));
   }, [graph.nodes]);
+
+  useEffect(() => {
+    setSelectedEdgeKey((key) =>
+      key && graph.edges.some((edge) => edgeKey(edge.from, edge.to) === key) ? key : null,
+    );
+  }, [graph.edges]);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -301,6 +318,12 @@ export function GraphPanel({
             </div>
           )}
         </div>
+        <button onClick={onUndo} disabled={!canUndo} title="Undo graph edit">
+          Undo
+        </button>
+        <button onClick={onRedo} disabled={!canRedo} title="Redo graph edit">
+          Redo
+        </button>
         <button onClick={handleResetLayout} disabled={manualPositionCount === 0} title="Reset moved nodes to the automatic layout">
           Reset
         </button>
@@ -373,7 +396,7 @@ export function GraphPanel({
         </div>
       ) : (
         <div className="graph-canvas" onMouseLeave={() => setHover(null)}>
-          <svg width={layout.width} height={layout.height}>
+          <svg width={layout.width} height={layout.height} onClick={() => setSelectedEdgeKey(null)}>
             <defs>
               <marker
                 id="graph-arrow"
@@ -386,6 +409,17 @@ export function GraphPanel({
               >
                 <path d="M0 0 L8 4 L0 8 z" className="graph-arrow-head" />
               </marker>
+              <marker
+                id="graph-arrow-selected"
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0 0 L8 4 L0 8 z" className="graph-arrow-head-selected" />
+              </marker>
             </defs>
 
             {graph.edges.map((e) => {
@@ -397,13 +431,43 @@ export function GraphPanel({
               const x2 = b.x + NODE_W / 2;
               const y2 = b.y;
               const my = (y1 + y2) / 2;
+              const key = edgeKey(e.from, e.to);
+              const selected = selectedEdgeKey === key;
+              const deleteX = (x1 + x2) / 2;
               return (
-                <path
-                  key={`${e.from}→${e.to}`}
-                  className="graph-edge"
-                  d={`M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2 - 3}`}
-                  markerEnd="url(#graph-arrow)"
-                />
+                <g
+                  key={key}
+                  className={selected ? "graph-edge-group selected" : "graph-edge-group"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedEdgeKey(key);
+                  }}
+                >
+                  <path
+                    className="graph-edge-hit"
+                    d={`M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2 - 3}`}
+                  />
+                  <path
+                    className="graph-edge"
+                    d={`M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2 - 3}`}
+                    markerEnd="url(#graph-arrow)"
+                  />
+                  {selected && (
+                    <g
+                      className="graph-edge-remove"
+                      transform={`translate(${deleteX}, ${my})`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedEdgeKey(null);
+                        onRemoveEdge(e.from, e.to);
+                      }}
+                    >
+                      <title>Remove connection</title>
+                      <circle r={8} />
+                      <path d="M -3 -3 L 3 3 M 3 -3 L -3 3" />
+                    </g>
+                  )}
+                </g>
               );
             })}
 
@@ -508,6 +572,10 @@ function sortedGraphNodes(
 
 function titleCompare(a: GraphNode, b: GraphNode): number {
   return a.title.localeCompare(b.title);
+}
+
+function edgeKey(from: string, to: string): string {
+  return `${from}→${to}`;
 }
 
 function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean }) {

@@ -116,6 +116,15 @@ export function addGraphEdge(
   return { ...graph, edges: [...graph.edges, { from, to }] };
 }
 
+export function removeGraphEdge(
+  graph: ExplorationGraph,
+  from: string,
+  to: string,
+): ExplorationGraph {
+  const edges = graph.edges.filter((e) => e.from !== from || e.to !== to);
+  return edges.length === graph.edges.length ? graph : { ...graph, edges };
+}
+
 /**
  * Replaces a node's title, but only while the current one is still an
  * address-shaped placeholder (URL / arXiv id / file name) — a real title,

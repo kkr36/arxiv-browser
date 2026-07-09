@@ -20,6 +20,7 @@ import {
   nodeFromAuthor,
   nodeFromPaper,
   nodeIdForPaper,
+  removeGraphEdge,
   removeNode,
   upgradePlaceholderTitle,
   type ExplorationGraph,
@@ -67,6 +68,12 @@ interface HistoryEntry {
   nodeId: string;
 }
 
+interface GraphHistory {
+  past: ExplorationGraph[];
+  present: ExplorationGraph;
+  future: ExplorationGraph[];
+}
+
 type Status =
   | { kind: "idle" }
   | { kind: "loading"; message: string }
@@ -108,7 +115,12 @@ export default function App({
     entries: [],
     index: -1,
   });
-  const [graph, setGraph] = useState<ExplorationGraph>(EMPTY_GRAPH);
+  const [graphHistory, setGraphHistory] = useState<GraphHistory>({
+    past: [],
+    present: EMPTY_GRAPH,
+    future: [],
+  });
+  const graph = graphHistory.present;
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [graphOpen, setGraphOpen] = useState(true);
   const [citationsOpen, setCitationsOpen] = useState(false);
@@ -125,6 +137,61 @@ export default function App({
   const loadSeq = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionInputRef = useRef<HTMLInputElement>(null);
+
+  function commitGraph(update: (graph: ExplorationGraph) => ExplorationGraph) {
+    setGraphHistory((history) => {
+      const next = update(history.present);
+      if (next === history.present || graphsEqual(next, history.present)) return history;
+      return {
+        past: [...history.past, history.present],
+        present: next,
+        future: [],
+      };
+    });
+  }
+
+  function amendGraph(update: (graph: ExplorationGraph) => ExplorationGraph) {
+    setGraphHistory((history) => {
+      const next = update(history.present);
+      return next === history.present || graphsEqual(next, history.present)
+        ? history
+        : { ...history, present: next };
+    });
+  }
+
+  function replaceGraph(next: ExplorationGraph) {
+    setGraphHistory({ past: [], present: next, future: [] });
+  }
+
+  function handleUndoGraph() {
+    setGraphHistory((history) => {
+      const previous = history.past.at(-1);
+      if (!previous) return history;
+      return {
+        past: history.past.slice(0, -1),
+        present: previous,
+        future: [history.present, ...history.future],
+      };
+    });
+  }
+
+  function handleRedoGraph() {
+    setGraphHistory((history) => {
+      const next = history.future[0];
+      if (!next) return history;
+      return {
+        past: [...history.past, history.present],
+        present: next,
+        future: history.future.slice(1),
+      };
+    });
+  }
+
+  useEffect(() => {
+    if (currentNodeId && !graph.nodes.some((node) => node.id === currentNodeId)) {
+      setCurrentNodeId(null);
+    }
+  }, [currentNodeId, graph.nodes]);
 
   async function showEntry(
     entry: HistoryEntry,
@@ -198,14 +265,14 @@ export default function App({
       if (!doc) return;
       onOpenedUrl?.(url, label);
       if (origin.kind === "root") {
-        setGraph((g) =>
+        commitGraph((g) =>
           addPaperNode(
             g,
             { id: nodeId, title: label ?? url, address: url, pdfUrl: url, kind: "pdf" },
             null,
           ),
         );
-        void enrichRootNode(url, nodeId, doc, setGraph, (paper) => {
+        void enrichRootNode(url, nodeId, doc, amendGraph, (paper) => {
           if (seq !== loadSeq.current) return;
           setHistory((h) => ({
             ...h,
@@ -227,9 +294,9 @@ export default function App({
           );
         });
       } else if (origin.kind === "citation") {
-        setGraph((g) => addPaperNode(g, nodeFromPaper(origin.paper), origin.parentId));
+        commitGraph((g) => addPaperNode(g, nodeFromPaper(origin.paper), origin.parentId));
       } else if (origin.kind === "author") {
-        setGraph((g) => addPaperNode(g, nodeFromAuthor(origin.author), origin.parentId));
+        commitGraph((g) => addPaperNode(g, nodeFromAuthor(origin.author), origin.parentId));
       }
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
@@ -300,7 +367,9 @@ export default function App({
       const author = await resolveAuthorInput(raw);
       if (seq !== loadSeq.current) return;
       await showAuthor(author, seq, { push: true });
-      setGraph((g) => addPaperNode(g, nodeFromAuthor(author), origin.kind === "paper" ? origin.parentId : null));
+      commitGraph((g) =>
+        addPaperNode(g, nodeFromAuthor(author), origin.kind === "paper" ? origin.parentId : null),
+      );
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -314,7 +383,7 @@ export default function App({
       const author = await resolveAuthorRef(ref);
       if (seq !== loadSeq.current) return;
       await showAuthor(author, seq, { push: true });
-      setGraph((g) => addPaperNode(g, nodeFromAuthor(author), parentId));
+      commitGraph((g) => addPaperNode(g, nodeFromAuthor(author), parentId));
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -354,7 +423,7 @@ export default function App({
         { push: true },
       );
       if (!doc) return;
-      setGraph((g) =>
+      commitGraph((g) =>
         addPaperNode(
           g,
           { id: nodeId, title: file.name, address: file.name, pdfUrl: dataUrl, kind: "pdf" },
@@ -362,7 +431,7 @@ export default function App({
         ),
       );
       const title = await readPdfTitle(doc);
-      if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
+      if (title) amendGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
     } catch (err) {
       if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
     } finally {
@@ -379,7 +448,7 @@ export default function App({
       const html = await file.text();
       if (seq !== loadSeq.current) return;
       const imported = parseSessionExportHtml(html);
-      setGraph(imported.graph);
+      replaceGraph(imported.graph);
       setCurrentNodeId(null);
       setHistory({ entries: [], index: -1 });
       setView(null);
@@ -433,7 +502,7 @@ export default function App({
       return;
     }
     if (paper.semanticScholarUrl) {
-      setGraph((g) => addPaperNode(g, nodeFromPaper(paper), parentId));
+      commitGraph((g) => addPaperNode(g, nodeFromPaper(paper), parentId));
       const win = window.open(paper.semanticScholarUrl, "_blank", "noopener");
       if (!win) {
         // Popup blocked (resolution outlived the click's user activation) —
@@ -499,16 +568,22 @@ export default function App({
    * viewer. If it was the current node, citation clicks made afterwards
    * start a fresh root instead of hanging off a ghost. */
   function handleRemoveNode(id: string) {
-    setGraph((g) => removeNode(g, id));
+    commitGraph((g) => removeNode(g, id));
     if (currentNodeId === id) setCurrentNodeId(null);
   }
 
   function handleAddGraphEdge(from: string, to: string) {
-    setGraph((g) => addGraphEdge(g, from, to));
+    commitGraph((g) => addGraphEdge(g, from, to));
+  }
+
+  function handleRemoveGraphEdge(from: string, to: string) {
+    commitGraph((g) => removeGraphEdge(g, from, to));
   }
 
   const canBack = history.index > 0;
   const canForward = history.index < history.entries.length - 1;
+  const canUndoGraph = graphHistory.past.length > 0;
+  const canRedoGraph = graphHistory.future.length > 0;
   const loading = status.kind === "loading";
 
   useEffect(() => {
@@ -711,6 +786,11 @@ export default function App({
             onSelectNode={handleGraphSelect}
             onRemoveNode={handleRemoveNode}
             onAddEdge={handleAddGraphEdge}
+            onRemoveEdge={handleRemoveGraphEdge}
+            onUndo={handleUndoGraph}
+            onRedo={handleRedoGraph}
+            canUndo={canUndoGraph}
+            canRedo={canRedoGraph}
             onClose={() => setGraphOpen(false)}
           />
         )}
@@ -751,6 +831,11 @@ function dedupeAuthors(authors: AuthorProfileRef[]): AuthorProfileRef[] {
   return out;
 }
 
+function graphsEqual(a: ExplorationGraph, b: ExplorationGraph): boolean {
+  if (a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Root nodes start out labeled with what the user typed (a URL). Swap in
  * real metadata: Semantic Scholar by arXiv id when the URL is an arXiv PDF
  * (title, authors, abstract — feeds the hover preview and export), else the
@@ -759,7 +844,7 @@ async function enrichRootNode(
   url: string,
   nodeId: string,
   doc: PDFDocumentProxy,
-  setGraph: React.Dispatch<React.SetStateAction<ExplorationGraph>>,
+  updateGraph: (update: (graph: ExplorationGraph) => ExplorationGraph) => void,
   onResolvedPaper?: (paper: ResolvedPaper) => void,
 ): Promise<void> {
   const arxivId = url.match(/arxiv\.org\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1];
@@ -769,8 +854,10 @@ async function enrichRootNode(
       if (s2) {
         const paper = toResolvedPaper(s2);
         const node = nodeFromPaper(paper);
-        setGraph((g) =>
-          addPaperNode(g, { ...node, id: nodeId, address: url, pdfUrl: url, kind: "pdf" }, null),
+        updateGraph((g) =>
+          g.nodes.some((existing) => existing.id === nodeId)
+            ? addPaperNode(g, { ...node, id: nodeId, address: url, pdfUrl: url, kind: "pdf" }, null)
+            : g,
         );
         onResolvedPaper?.({ ...paper, pdfUrl: url });
         return;
@@ -780,7 +867,7 @@ async function enrichRootNode(
     }
   }
   const title = await readPdfTitle(doc);
-  if (title) setGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
+  if (title) updateGraph((g) => upgradePlaceholderTitle(g, nodeId, title));
 }
 
 /** Pulls a usable title out of the PDF's own metadata, to replace URL-shaped
