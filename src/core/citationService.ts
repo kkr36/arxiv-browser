@@ -41,7 +41,7 @@ export async function buildCitationData(doc: PDFDocumentProxy): Promise<Citation
       }
     }
 
-    const raw = detectMarkersOnPage(page, exclude);
+    const raw = detectMarkersOnPage(page, exclude, bibliography?.style);
     const matched = matchMarkersToEntries(raw, entries);
     if (matched.length > 0) markersByPage.set(page.pageNumber, matched);
   }

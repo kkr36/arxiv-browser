@@ -4,6 +4,9 @@ export interface PageTextItem {
   end: number;
   x: number;
   y: number;
+  /** Font size in page units (the text matrix's vertical scale). Lets callers
+   * tell a large title line from smaller author/body lines. */
+  fontSize: number;
   hasEOL: boolean;
 }
 
@@ -24,6 +27,15 @@ export interface BibEntry {
   authorYearKey?: { surname: string; year: string };
   rawText: string;
 }
+
+/**
+ * The citation scheme a paper uses, inferred from how its bibliography entries
+ * are labelled. Governs which in-text marker forms are worth detecting.
+ *  - "numbered": `[12]`, `[3, 4]`, `[5-7]` (and "Author et al. [12]").
+ *  - "alpha": bracketed keys like `[GBC16]`.
+ *  - "author-year": `(Smith, 2020)`, `[Smith et al., 2020]`, `Smith (2020)`.
+ */
+export type CitationStyle = "numbered" | "alpha" | "author-year";
 
 export interface CitationMarker {
   id: string;

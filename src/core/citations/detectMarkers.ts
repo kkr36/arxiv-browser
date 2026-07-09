@@ -1,4 +1,4 @@
-import type { CitationMarker, PageText } from "../types";
+import type { CitationMarker, CitationStyle, PageText } from "../types";
 
 const NUMBERED_MARKER_RE = /\[\s*(\d+(?:\s*[-–,]\s*\d+)*)\s*\]/g;
 const NUMBERED_TOKEN_RE = /(\d+)(?:\s*[-–]\s*(\d+))?/g;
@@ -10,9 +10,19 @@ const PAREN_AUTHOR_YEAR_RE = /\(([^()]{0,450}(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
 const AUTHOR_YEAR_SURNAME = String.raw`[\p{Lu}][\p{L}\p{M}'’-]+(?:-\s*[\p{L}\p{M}'’-]+)?`;
 const AUTHOR_YEAR_CAP_WORD_RE = new RegExp(AUTHOR_YEAR_SURNAME, "gu");
 const AUTHOR_YEAR_RE = /\b((?:19|20)\d{2}[a-z]?)/g;
-// Narrative form: "Vaswani et al. (2017)", "Smith and Lee (2020)", "Smith (2020)".
-const NARRATIVE_RE =
-  /\b([A-Z][A-Za-z'\-]+)(?:\s+(?:et al\.?|(?:and|&)\s+[A-Z][A-Za-z'\-]+))?\s*\(\s*((?:19|20)\d{2}[a-z]?)\s*\)/g;
+// Narrative form, where the author name sits OUTSIDE the delimiters and one or
+// more years sit inside them: "Vaswani et al. (2017)", "Smith and Lee (2020)",
+// "Ben-Porat and Tennenholtz [2017, 2019]", "Feng et al. [2019]". Both paren
+// and bracket delimiters are accepted, as is a comma/semicolon-separated list
+// of years that all cite the same narrated author(s).
+const NARRATIVE_RE = new RegExp(
+  String.raw`\b(${AUTHOR_YEAR_SURNAME})` +
+    String.raw`(?:\s+(?:et al\.?|(?:and|&)\s+${AUTHOR_YEAR_SURNAME}))?` +
+    String.raw`\s*[[(]\s*` +
+    String.raw`((?:19|20)\d{2}[a-z]?(?:\s*[,;]\s*(?:19|20)\d{2}[a-z]?)*)` +
+    String.raw`\s*[\])]`,
+  "gu",
+);
 
 export type RawMarker = Omit<CitationMarker, "entryIndices">;
 
@@ -40,6 +50,11 @@ function numberedMarkers(
     const from = Number(token[1]);
     const to = token[2] ? Number(token[2]) : from;
     if (Number.isNaN(from) || Number.isNaN(to)) continue;
+    // 4-digit values in a bracket are years from a narrative citation
+    // ("Feng et al. [2019]", "Ben-Porat and Tennenholtz [2017, 2019]"), not
+    // reference indices — a bibliography never has 1000+ numbered entries.
+    // Leaving them to NARRATIVE_RE lets those cites resolve to the right work.
+    if (from > 999 || to > 999) continue;
     const tokenStart = match.index + token.index;
     markers.push({
       id: `p${page.pageNumber}-n${tokenStart}`,
@@ -75,6 +90,14 @@ function keyedMarkers(page: PageText, match: RegExpExecArray): RawMarker[] {
 /**
  * "(Kingma and Ba, 2015; see Loshchilov and Hutter, 2019)" -> one marker per
  * cited work, with each marker spanning the author/year fragment it matched.
+ *
+ * Works cited together may be separated by semicolons ("A, 2019; B, 2020") or,
+ * in many venues, by commas ("Kaplan et al., 2020, Sharma and Kaplan, 2022,
+ * Bahri et al., 2021") where the comma also separates each author from its own
+ * year. To handle both without confusing the two roles of the comma, each
+ * cited work is taken to be the text between the previous work's year and the
+ * next year — so the fragment for a work always ends at its year and starts
+ * right after the prior work's year.
  */
 function authorYearMarkers(
   page: PageText,
@@ -84,13 +107,27 @@ function authorYearMarkers(
   const markers: RawMarker[] = [];
   AUTHOR_YEAR_RE.lastIndex = 0;
   let year: RegExpExecArray | null;
+  let prevYearEnd = 0;
+  let lastSurname: string | null = null;
   while ((year = AUTHOR_YEAR_RE.exec(group))) {
-    const fragmentStart = fragmentStartBeforeYear(group, year.index);
+    const fragmentStart = prevYearEnd;
+    prevYearEnd = year.index + year[0].length;
     const trimmedStart = trimCitationPrefix(group, fragmentStart, year.index);
-    const surname = extractCitedSurname(group.slice(trimmedStart, year.index));
-    if (!surname) continue;
+    const fragment = group.slice(trimmedStart, year.index);
+    let surname = extractCitedSurname(fragment);
+    let start: number;
+    if (surname) {
+      lastSurname = surname;
+      start = match.index + 1 + trimmedStart;
+    } else if (lastSurname && fragment.trim() === "") {
+      // "Liu et al., 2018, 2020" — a bare trailing year cites the same authors
+      // as the previous work for an additional year.
+      surname = lastSurname;
+      start = match.index + 1 + year.index;
+    } else {
+      continue;
+    }
 
-    const start = match.index + 1 + trimmedStart;
     const end = match.index + 1 + year.index + year[0].length;
     const raw = group.slice(trimmedStart, year.index + year[0].length).trim();
     markers.push({
@@ -105,13 +142,45 @@ function authorYearMarkers(
   return markers;
 }
 
-function fragmentStartBeforeYear(group: string, yearIndex: number): number {
-  const semicolon = group.lastIndexOf(";", yearIndex);
-  return semicolon === -1 ? 0 : semicolon + 1;
+/**
+ * "Ben-Porat and Tennenholtz [2017, 2019]" / "Feng et al. [2019]" -> one marker
+ * per bracketed year, each carrying the narrated author's surname. The first
+ * year's marker spans the author name too so hovering the name works; later
+ * years (same authors) highlight just the year.
+ */
+function narrativeMarkers(page: PageText, match: RegExpExecArray): RawMarker[] {
+  const surname = match[1];
+  const whole = match[0];
+  const markers: RawMarker[] = [];
+  AUTHOR_YEAR_RE.lastIndex = 0;
+  let year: RegExpExecArray | null;
+  let first = true;
+  while ((year = AUTHOR_YEAR_RE.exec(whole))) {
+    const yearStart = match.index + year.index;
+    const start = first ? match.index : yearStart;
+    const end = yearStart + year[0].length;
+    markers.push({
+      id: `p${page.pageNumber}-t${start}`,
+      page: page.pageNumber,
+      start,
+      end,
+      raw: page.text.slice(start, end),
+      authorYears: [{ surname, year: year[1] }],
+    });
+    first = false;
+  }
+  return markers;
 }
 
+// Editorial lead-ins before a cited work: "see", "see also", "e.g.", "i.e.",
+// "cf.", "also", "viz.", each possibly dotted and comma/space separated, and
+// possibly stacked ("see, e.g.,"). Stripped so surname extraction sees the
+// author, not the lead-in word.
+const CITATION_PREFIX_RE =
+  /^[\s,;]*(?:(?:see|also|cf|e\.?\s*g|i\.?\s*e|viz|e\.?\s*g\.?|resp)\.?[\s,;]*)*/i;
+
 function trimCitationPrefix(group: string, start: number, end: number): number {
-  const leading = group.slice(start, end).match(/^[,;\s]*(?:(?:see|also|e\.g\.|cf\.)\s+)*/i);
+  const leading = group.slice(start, end).match(CITATION_PREFIX_RE);
   return start + (leading?.[0].length ?? 0);
 }
 
@@ -163,51 +232,62 @@ function dedupeMarkers(markers: RawMarker[]): RawMarker[] {
  * start falls inside `exclude` are dropped — used to skip the bibliography
  * section itself, so we don't match reference numbers/page ranges inside
  * the entries as if they were in-text citations.
+ *
+ * `style` restricts detection to the forms the paper actually uses (from its
+ * bibliography): a numbered paper only has `[n]` markers, an author-year paper
+ * only has author-year ones. This avoids cross-scheme false positives — e.g.
+ * "(NeurIPS 2023)" resolving against an author-year entry, or a stray bracketed
+ * number resolving in an author-year paper. Omit `style` to try every form
+ * (used when there is no parsed bibliography to infer from).
  */
-export function detectMarkersOnPage(page: PageText, exclude?: ExcludedRange): RawMarker[] {
+export function detectMarkersOnPage(
+  page: PageText,
+  exclude?: ExcludedRange,
+  style?: CitationStyle,
+): RawMarker[] {
   const text = page.text;
   const markers: RawMarker[] = [];
   const excluded = (index: number) => !!exclude && index >= exclude.start && index < exclude.end;
+  const allow = (...styles: CitationStyle[]) => style === undefined || styles.includes(style);
 
   let m: RegExpExecArray | null;
 
-  NUMBERED_MARKER_RE.lastIndex = 0;
-  while ((m = NUMBERED_MARKER_RE.exec(text))) {
-    if (excluded(m.index)) continue;
-    markers.push(...numberedMarkers(page, m));
+  if (allow("numbered")) {
+    NUMBERED_MARKER_RE.lastIndex = 0;
+    while ((m = NUMBERED_MARKER_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      markers.push(...numberedMarkers(page, m));
+    }
   }
 
-  BRACKET_KEY_MARKER_RE.lastIndex = 0;
-  while ((m = BRACKET_KEY_MARKER_RE.exec(text))) {
-    if (excluded(m.index)) continue;
-    if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
-    markers.push(...keyedMarkers(page, m));
+  if (allow("alpha")) {
+    BRACKET_KEY_MARKER_RE.lastIndex = 0;
+    while ((m = BRACKET_KEY_MARKER_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
+      markers.push(...keyedMarkers(page, m));
+    }
   }
 
-  BRACKET_AUTHOR_YEAR_RE.lastIndex = 0;
-  while ((m = BRACKET_AUTHOR_YEAR_RE.exec(text))) {
-    if (excluded(m.index)) continue;
-    markers.push(...authorYearMarkers(page, m));
-  }
+  if (allow("author-year")) {
+    BRACKET_AUTHOR_YEAR_RE.lastIndex = 0;
+    while ((m = BRACKET_AUTHOR_YEAR_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      markers.push(...authorYearMarkers(page, m));
+    }
 
-  PAREN_AUTHOR_YEAR_RE.lastIndex = 0;
-  while ((m = PAREN_AUTHOR_YEAR_RE.exec(text))) {
-    if (excluded(m.index)) continue;
-    markers.push(...authorYearMarkers(page, m));
-  }
+    PAREN_AUTHOR_YEAR_RE.lastIndex = 0;
+    while ((m = PAREN_AUTHOR_YEAR_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      markers.push(...authorYearMarkers(page, m));
+    }
 
-  NARRATIVE_RE.lastIndex = 0;
-  while ((m = NARRATIVE_RE.exec(text))) {
-    if (excluded(m.index)) continue;
-    if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
-    markers.push({
-      id: `p${page.pageNumber}-t${m.index}`,
-      page: page.pageNumber,
-      start: m.index,
-      end: m.index + m[0].length,
-      raw: m[0],
-      authorYears: [{ surname: m[1], year: m[2] }],
-    });
+    NARRATIVE_RE.lastIndex = 0;
+    while ((m = NARRATIVE_RE.exec(text))) {
+      if (excluded(m.index)) continue;
+      if (overlapsExisting(markers, m.index, m.index + m[0].length)) continue;
+      markers.push(...narrativeMarkers(page, m));
+    }
   }
 
   return dedupeMarkers(markers).sort((a, b) => a.start - b.start);

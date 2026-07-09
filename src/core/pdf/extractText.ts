@@ -25,6 +25,9 @@ export async function extractAllPageText(
         end,
         x: item.transform[4],
         y: item.transform[5],
+        // Vertical scale of the text matrix — pdf.js's own font-height measure,
+        // more reliable than item.height (0 for whitespace-only runs).
+        fontSize: Math.hypot(item.transform[1], item.transform[3]),
         hasEOL: !!item.hasEOL,
       });
       if (item.hasEOL) text += "\n";

@@ -7,6 +7,8 @@ export interface PageLine {
   y: number;
   start: number;
   end: number;
+  /** Largest font size among the line's items, in page units. */
+  fontSize: number;
 }
 
 /**
@@ -19,6 +21,7 @@ export function buildPageLines(page: PageText): PageLine[] {
   let start = -1;
   let x = 0;
   let y = 0;
+  let fontSize = 0;
   let text = "";
 
   for (const item of page.items) {
@@ -26,17 +29,19 @@ export function buildPageLines(page: PageText): PageLine[] {
       start = item.start;
       x = item.x;
       y = item.y;
+      fontSize = 0;
     }
     text += item.str;
+    if (item.str.trim().length > 0) fontSize = Math.max(fontSize, item.fontSize);
     if (item.hasEOL) {
-      lines.push({ page: page.pageNumber, text, x, y, start, end: start + text.length });
+      lines.push({ page: page.pageNumber, text, x, y, start, end: start + text.length, fontSize });
       start = -1;
       text = "";
     }
   }
 
   if (start !== -1) {
-    lines.push({ page: page.pageNumber, text, x, y, start, end: start + text.length });
+    lines.push({ page: page.pageNumber, text, x, y, start, end: start + text.length, fontSize });
   }
 
   return lines;

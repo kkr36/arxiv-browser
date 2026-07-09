@@ -1,5 +1,5 @@
 import type { AuthorMarker, AuthorProfileRef, PageText } from "../types";
-import { buildPageLines } from "../pdf/buildLines";
+import { buildPageLines, type PageLine } from "../pdf/buildLines";
 
 const MAX_AUTHOR_PAGES = 2;
 const MAX_AUTHOR_CANDIDATES = 24;
@@ -46,7 +46,13 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
   for (const page of pages.slice(0, MAX_AUTHOR_PAGES)) {
     const lines = buildPageLines(page);
     const abstractLineIndex = lines.findIndex((line) => /^\s*abstract\b/i.test(line.text));
-    const searchLines = lines.slice(0, abstractLineIndex === -1 ? Math.min(lines.length, 80) : abstractLineIndex);
+    const headerLines = lines.slice(0, abstractLineIndex === -1 ? Math.min(lines.length, 80) : abstractLineIndex);
+    // The title is the largest-font text at the top of the page; author names
+    // are set smaller. Dropping title-sized lines stops a title fragment that
+    // wraps to its own line ("Peer Review") from being read as an author. Only
+    // applied when a smaller font actually exists below, so papers that set the
+    // title and authors at the same size lose nothing.
+    const searchLines = headerLines.filter((line) => !isTitleFontLine(line, headerLines));
     const emailAnchored = authorsNearEmailLines(searchLines.map((line) => line.text));
     if (emailAnchored.length > 0) {
       candidates.push(...emailAnchored.map((name) => ({ name })));
@@ -64,14 +70,32 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
   return dedupeAuthors(candidates);
 }
 
+const TITLE_FONT_EPS = 1;
+
+/** True when `line` is set at the header's largest font (the title), and a
+ * smaller font exists in the header (so real authors sit below the title). */
+function isTitleFontLine(line: PageLine, headerLines: PageLine[]): boolean {
+  const maxSize = Math.max(...headerLines.map((l) => l.fontSize));
+  if (!(maxSize > 0)) return false;
+  const hasSmaller = headerLines.some((l) => l.fontSize > 0 && l.fontSize < maxSize - TITLE_FONT_EPS);
+  return hasSmaller && line.fontSize >= maxSize - TITLE_FONT_EPS;
+}
+
 function authorsNearEmailLines(lines: string[]): string[] {
   const names: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (!/\S+@\S+/.test(lines[i])) continue;
-    for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+    // Walk up from the email line. Affiliation/blank lines above the emails
+    // yield no names and are scanned past; once names start appearing (authors
+    // are often stacked one per line), collect the whole run and stop at the
+    // first gap so we don't reach into the title above.
+    let started = false;
+    for (let j = i - 1; j >= Math.max(0, i - 6); j--) {
       const lineNames = namesFromLine(lines[j]);
       if (lineNames.length > 0) {
         names.push(...lineNames);
+        started = true;
+      } else if (started) {
         break;
       }
     }

@@ -1,5 +1,5 @@
 import { buildPageLines, type PageLine } from "../pdf/buildLines";
-import type { BibEntry, PageText } from "../types";
+import type { BibEntry, CitationStyle, PageText } from "../types";
 
 // Compared against the line with whitespace/periods stripped, so letter-spaced
 // small-caps headings ("R E F E R E N C E S") and "7. References" both match.
@@ -15,10 +15,26 @@ const RUNNING_HEADER_RE = /^published as\s+/i;
 const BRACKET_NUMBER_RE = /^\[(\d+)\]\s*/;
 const BRACKET_LABEL_RE = /^\[([A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/;
 const DOTTED_NUMBER_RE = /^(\d{1,3})\.\s+(?=[A-Z(])/;
-const AUTHOR_YEAR_ENTRY_RE = /^[\p{Lu}][\p{L}\p{M}'’-]+,\s*(?:[\p{Lu}]\.[\s-]*)+/u;
+// A reference's opening author, written either surname-first ("Devlin, J.",
+// "Ben-Porat, O.") or initials-first ("C. Toups", "K. A. Creel", "R. H.
+// Thaler"). Both are needed: a single-line entry sitting at the same left
+// margin as the next entry gives the hanging-indent geometry nothing to split
+// on, so this explicit author-start is the only signal separating them.
+const AUTHOR_YEAR_ENTRY_RE = new RegExp(
+  String.raw`^(?:` +
+    // surname-first: "Surname, I. ..."
+    String.raw`[\p{Lu}][\p{L}\p{M}'’-]+,\s*(?:[\p{Lu}]\.[\s-]*)+` +
+    String.raw`|` +
+    // initials-first: "I. Surname" / "I. J. Surname"
+    String.raw`(?:[\p{Lu}]\.[\s-]*){1,4}[\p{Lu}][\p{L}\p{M}'’-]+` +
+    String.raw`)`,
+  "u",
+);
 
 export interface BibliographyParseResult {
   entries: BibEntry[];
+  /** Citation scheme inferred from how the entries are labelled. */
+  style: CitationStyle;
   headingPage: number;
   headingStart: number;
   /** Page/offset of the line that ends the bibliography (appendix or
@@ -64,7 +80,7 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
     .filter((l) => !RUNNING_HEADER_RE.test(l.text.trim()));
   if (bibLines.length === 0) return null;
 
-  const groups = groupLinesIntoEntries(bibLines);
+  const groups = groupLinesIntoEntries(bibLines, hasHangingIndent(bibLines));
   const numberedGroups = groups.filter(groupStartsWithNumber);
   // In numbered bibliographies, any unnumbered groups after the final entry
   // are almost always later sections/captions that follow the references.
@@ -80,11 +96,37 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
 
   return {
     entries,
+    style: inferCitationStyle(entries),
     headingPage: heading.page,
     headingStart: heading.start,
     endPage: stopLine?.page ?? null,
     endOffset: stopLine?.start ?? null,
   };
+}
+
+/**
+ * The scheme most entries are labelled with. In-text markers follow the same
+ * scheme, so this lets the detector run only the marker forms that can appear.
+ */
+function inferCitationStyle(entries: BibEntry[]): CitationStyle {
+  if (entries.length === 0) return "author-year";
+  const numbered = entries.filter((e) => e.number !== undefined).length;
+  const keyed = entries.filter((e) => e.citationKey !== undefined).length;
+  if (numbered >= entries.length * 0.6) return "numbered";
+  if (keyed >= entries.length * 0.6) return "alpha";
+  return "author-year";
+}
+
+/**
+ * Whether the bibliography uses a hanging indent (entry starts flush at the
+ * column edge, continuation lines indented). When it does, "a line at the
+ * column edge starts an entry" — which separates two single-line entries at the
+ * same margin that the outdent-vs-previous rule would otherwise merge.
+ */
+function hasHangingIndent(lines: PageLine[]): boolean {
+  let indented = 0;
+  for (const line of lines) if (!isAtColumnStart(line, lines)) indented++;
+  return indented >= 2;
 }
 
 function isBibliographyStopLine(line: PageLine, lines: PageLine[]): boolean {
@@ -112,7 +154,7 @@ function isBreakBetween(a: PageLine, b: PageLine): boolean {
   );
 }
 
-function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
+function groupLinesIntoEntries(lines: PageLine[], hangingIndent: boolean): PageLine[][] {
   const groups: PageLine[][] = [];
   let current: PageLine[] = [];
   let prev: PageLine | null = null;
@@ -140,7 +182,14 @@ function groupLinesIntoEntries(lines: PageLine[]): PageLine[][] {
     } else if (!prev) {
       isNewEntry = true;
     } else if (!isBreakBetween(prev, line)) {
-      isNewEntry = line.x < prev.x - OUTDENT_EPS;
+      // With a hanging indent, continuation lines are always indented, so any
+      // line back at the column edge begins a new entry — this splits adjacent
+      // single-line entries at the same margin. Otherwise fall back to a plain
+      // outdent relative to the previous line.
+      isNewEntry =
+        hangingIndent && !continuesHyphenatedWord && !continuesOpenAuthorList
+          ? isAtColumnStart(line, lines)
+          : line.x < prev.x - OUTDENT_EPS;
     } else {
       // The indent comparison is meaningless across a column/page break, so
       // peek ahead instead: a hanging-indent entry starts flush left with its
@@ -209,19 +258,39 @@ function buildEntry(lines: PageLine[], index: number): BibEntry {
   };
 }
 
-function extractAuthorYearKey(text: string): { surname: string; year: string } | undefined {
-  // (?!\.\d) keeps arXiv ids like "arXiv:1906.04043" from posing as years.
-  const yearMatch = text.match(/\b(19|20)\d{2}[a-z]?\b(?!\.\d)/);
-  if (!yearMatch) return undefined;
+export function extractAuthorYearKey(text: string): { surname: string; year: string } | undefined {
+  const year = extractPublicationYear(text);
+  if (!year) return undefined;
   // In-text markers cite the first author's SURNAME, which is the last word
   // of the first author however the list is written: "Alan Akbik, Duncan
   // Blythe…" → Akbik; "Devlin, J." → Devlin; "J. K. Smith and B. Jones" →
   // Smith. Cut the author sentence, take the first author (up to a comma or
   // "and"), then its last capitalized word of 2+ letters (skips initials).
-  const authorSentence = text.split(/(?<=[a-z)])\.\s+/)[0];
+  // Unicode letter classes keep accented surnames whole ("Brückner", not "Br").
+  const authorSentence = text.split(/(?<=[\p{Ll})])\.\s+/u)[0];
   const firstAuthor = authorSentence.split(/,|\band\b|&/)[0];
-  const capWords = firstAuthor.match(/[A-Z][A-Za-z'\-]+/g);
+  const capWords = firstAuthor.match(/\p{Lu}[\p{L}\p{M}'’-]*/gu);
   const surname = capWords?.[capWords.length - 1];
-  if (surname) return { surname, year: yearMatch[0] };
+  if (surname) return { surname, year };
+  return undefined;
+}
+
+/**
+ * The publication year an in-text author-year marker cites. Scans left to right
+ * but skips 4-digit numbers that are actually a page range ("pages 1929–1938")
+ * or part of an arXiv id ("arXiv:1906.04043"), so the real year wins even when
+ * a year-shaped page number appears earlier in the entry.
+ */
+function extractPublicationYear(text: string): string | undefined {
+  const yearRe = /\b(?:19|20)\d{2}[a-z]?\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = yearRe.exec(text))) {
+    const before = text.slice(Math.max(0, m.index - 2), m.index);
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 2);
+    if (/^\.\d/.test(after)) continue; // arXiv id fragment: 1906.04043
+    if (/[-–]\s*$/.test(before)) continue; // page-range end: 1929–[1938]
+    if (/^\s*[-–]\s*\d/.test(after)) continue; // page-range start: [1929]–1938
+    return m[0];
+  }
   return undefined;
 }
