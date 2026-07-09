@@ -3,12 +3,16 @@ import { extractAllPageText } from "./pdf/extractText";
 import { parseBibliography } from "./citations/parseBibliography";
 import { detectMarkersOnPage, type ExcludedRange } from "./citations/detectMarkers";
 import { matchMarkersToEntries } from "./citations/matchMarkersToEntries";
-import {
-  extractArxivId,
-  guessTitle,
-  matchPaperByReferenceText,
-} from "./semanticScholar/client";
+import { guessTitle, matchPaperByReferenceText } from "./semanticScholar/client";
 import { isLikelyProxyHostilePdfUrl, toResolvedPaper } from "./semanticScholar/resolvePaper";
+import { extractArxivId, extractDoi } from "./metadata/identifiers";
+import {
+  crossrefWorkToResolvedPaper,
+  getCrossrefWorkByDoi,
+  matchCrossrefBibliographic,
+} from "./metadata/crossref";
+import { matchOaWorkByTitle, oaWorkToResolvedPaper } from "./metadata/openalex";
+import { findUnpaywallPdfUrl } from "./metadata/unpaywall";
 import { fetchArxivById, searchArxivByTitle } from "./arxiv/searchArxiv";
 import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "./types";
 
@@ -62,9 +66,9 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 
   const entry = entries[entryIndex];
   const promise = (async () => {
-    // v4: bumped when the resolution pipeline improved, so stale results
-    // cached by the old (title-guess-only) logic get re-resolved.
-    const cacheKey = `arxiv-browser:s2v4:${entry.rawText.slice(0, 120)}`;
+    // v5: bumped when the resolution pipeline moved from Semantic Scholar
+    // to arXiv/Crossref/OpenAlex, so stale S2-era results get re-resolved.
+    const cacheKey = `arxiv-browser:resolve-v5:${entry.rawText.slice(0, 120)}`;
     const stored = safeLocalStorageGet(cacheKey);
     if (stored) {
       try {
@@ -90,37 +94,15 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 }
 
 /**
- * Semantic Scholar first (richest metadata, handles explicit arXiv ids/DOIs
- * itself); when it comes up empty, back off to the arXiv API — by explicit
- * id when the reference names one, else by extracted title.
+ * Fast identifier-first resolution. An explicit arXiv id goes straight to
+ * the arXiv API (authoritative for arXiv papers, always has the PDF); an
+ * explicit DOI goes to Crossref for metadata with Unpaywall fetching an
+ * open-access PDF in parallel. Otherwise Crossref's citation-string matcher
+ * and an OpenAlex title search race in parallel, both guarded by strict
+ * title validation. Semantic Scholar — slow and aggressively rate-limited —
+ * is kept only as the last resort.
  */
 async function resolveRawReference(rawText: string): Promise<ResolvedPaper | null> {
-  const s2 = await matchPaperByReferenceText(rawText);
-  if (s2) {
-    const resolved = toResolvedPaper(s2);
-    const directPdf = s2.openAccessPdf?.url;
-    if (
-      directPdf &&
-      isLikelyProxyHostilePdfUrl(directPdf) &&
-      resolved.source !== "arxiv"
-    ) {
-      const title = guessTitle(rawText);
-      const arxiv = title ? await searchArxivByTitle(title) : null;
-      if (arxiv?.pdfUrl) {
-        return {
-          ...resolved,
-          abstract: resolved.abstract ?? arxiv.abstract,
-          authors: resolved.authors.length > 0 ? resolved.authors : arxiv.authors,
-          year: resolved.year ?? arxiv.year,
-          venue: resolved.venue ?? arxiv.venue,
-          pdfUrl: arxiv.pdfUrl,
-          source: "arxiv",
-        };
-      }
-    }
-    return resolved;
-  }
-
   const arxivId = extractArxivId(rawText);
   if (arxivId) {
     const byId = await fetchArxivById(arxivId);
@@ -135,7 +117,101 @@ async function resolveRawReference(rawText: string): Promise<ResolvedPaper | nul
   }
 
   const title = guessTitle(rawText);
-  return title ? searchArxivByTitle(title) : null;
+
+  const doi = extractDoi(rawText);
+  if (doi) {
+    const [crossref, oaPdfUrl] = await Promise.all([
+      getCrossrefWorkByDoi(doi).catch(() => null),
+      findUnpaywallPdfUrl(doi).catch(() => null),
+    ]);
+    if (crossref) {
+      const resolved = crossrefWorkToResolvedPaper(crossref);
+      if (resolved) return withOpenAccessPdf(resolved, oaPdfUrl);
+    }
+  }
+
+  const [crossrefMatch, openAlexWork] = await Promise.all([
+    matchCrossrefBibliographic(rawText, title).catch(() => null),
+    title ? matchOaWorkByTitle(title).catch(() => null) : Promise.resolve(null),
+  ]);
+  const crossrefPaper = crossrefMatch ? crossrefWorkToResolvedPaper(crossrefMatch) : null;
+  const openAlexPaper = openAlexWork ? oaWorkToResolvedPaper(openAlexWork) : null;
+  const merged = mergeResolvedCandidates(crossrefPaper, openAlexPaper);
+  if (merged) {
+    if (merged.pdfUrl || !merged.doi) return merged;
+    const oaPdfUrl = await findUnpaywallPdfUrl(merged.doi).catch(() => null);
+    return withOpenAccessPdf(merged, oaPdfUrl);
+  }
+
+  if (title) {
+    const arxiv = await searchArxivByTitle(title);
+    if (arxiv) return arxiv;
+  }
+
+  return resolveViaSemanticScholar(rawText);
+}
+
+function withOpenAccessPdf(paper: ResolvedPaper, oaPdfUrl: string | null): ResolvedPaper {
+  if (paper.pdfUrl || !oaPdfUrl) return paper;
+  return { ...paper, pdfUrl: oaPdfUrl, source: "direct-pdf" };
+}
+
+/**
+ * Combines the two parallel title-match results. Whichever candidate found a
+ * PDF (arXiv preferred) wins as the base; the other fills gaps — in practice
+ * Crossref has the cleaner venue/year and OpenAlex the abstract and author
+ * ids, so merging beats either alone.
+ */
+function mergeResolvedCandidates(
+  crossref: ResolvedPaper | null,
+  openAlex: ResolvedPaper | null,
+): ResolvedPaper | null {
+  if (!crossref || !openAlex) return crossref ?? openAlex;
+  const rank = (p: ResolvedPaper) => (p.source === "arxiv" ? 2 : p.pdfUrl ? 1 : 0);
+  const [base, other] = rank(openAlex) > rank(crossref) ? [openAlex, crossref] : [crossref, openAlex];
+  return {
+    ...base,
+    abstract: base.abstract ?? other.abstract,
+    authors: base.authors.length > 0 ? base.authors : other.authors,
+    authorProfiles: pickRicherAuthorProfiles(base, other),
+    year: base.year ?? other.year,
+    venue: base.venue ?? other.venue,
+    doi: base.doi ?? other.doi,
+    pdfUrl: base.pdfUrl ?? other.pdfUrl,
+    pageUrl: base.pageUrl ?? other.pageUrl,
+  };
+}
+
+function pickRicherAuthorProfiles(base: ResolvedPaper, other: ResolvedPaper) {
+  const hasIds = (p: ResolvedPaper) =>
+    p.authorProfiles?.some((a) => a.openAlexAuthorId) ?? false;
+  if (!hasIds(base) && hasIds(other)) return other.authorProfiles;
+  return base.authorProfiles ?? other.authorProfiles;
+}
+
+/** Last-resort path preserving the old pipeline's S2 behavior, including the
+ * swap to an arXiv PDF when S2's open-access URL is behind bot protection. */
+async function resolveViaSemanticScholar(rawText: string): Promise<ResolvedPaper | null> {
+  const s2 = await matchPaperByReferenceText(rawText);
+  if (!s2) return null;
+  const resolved = toResolvedPaper(s2);
+  const directPdf = s2.openAccessPdf?.url;
+  if (directPdf && isLikelyProxyHostilePdfUrl(directPdf) && resolved.source !== "arxiv") {
+    const title = guessTitle(rawText);
+    const arxiv = title ? await searchArxivByTitle(title) : null;
+    if (arxiv?.pdfUrl) {
+      return {
+        ...resolved,
+        abstract: resolved.abstract ?? arxiv.abstract,
+        authors: resolved.authors.length > 0 ? resolved.authors : arxiv.authors,
+        year: resolved.year ?? arxiv.year,
+        venue: resolved.venue ?? arxiv.venue,
+        pdfUrl: arxiv.pdfUrl,
+        source: "arxiv",
+      };
+    }
+  }
+  return resolved;
 }
 
 function safeLocalStorageGet(key: string): string | null {

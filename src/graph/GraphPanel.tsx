@@ -588,7 +588,11 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
   const meta =
     node.kind === "author"
       ? [
-          node.source === "google-scholar" ? "Google Scholar" : "Semantic Scholar",
+          node.source === "google-scholar"
+            ? "Google Scholar"
+            : node.source === "openalex"
+              ? "OpenAlex"
+              : "Semantic Scholar",
           node.paperCount !== undefined ? `${node.paperCount} works` : "",
           node.citationCount !== undefined ? `${node.citationCount} citations` : "",
           node.hIndex !== undefined ? `h-index ${node.hIndex}` : "",
@@ -616,7 +620,7 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
               : node.address
             ? "Click to open in the browser"
             : node.semanticScholarUrl
-              ? "Click to open on Semantic Scholar"
+              ? "Click to open the paper page"
               : "No link available"}
       </div>
     </div>

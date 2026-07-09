@@ -1,4 +1,5 @@
 import { fetchText } from "../net/fetchJson";
+import { titlesRoughlyEqual } from "../metadata/titleMatch";
 import type { ResolvedPaper } from "../types";
 
 // arXiv's API guidelines ask for ~3s between requests; a serialized queue
@@ -72,16 +73,17 @@ function toResolved(e: ArxivEntry): ResolvedPaper {
     title: e.title,
     abstract: e.summary || undefined,
     authors: e.authors,
+    // The paper hint lets author-profile resolution disambiguate these
+    // names through this paper's authorship list instead of name search.
+    authorProfiles: e.authors.map((name) => ({
+      name,
+      paperHint: { arxivId: e.id, title: e.title },
+    })),
     year: e.year,
     pdfUrl: `https://arxiv.org/pdf/${e.id}`,
+    pageUrl: `https://arxiv.org/abs/${e.id}`,
     source: "arxiv",
   };
-}
-
-/** Letters/digits only, lowercase — so hyphenation damage from PDF text
- * extraction ("machinegenerated") still equals the real title. */
-function normalizeTitle(s: string): string {
-  return s.toLowerCase().replace(/[^\p{L}0-9]+/gu, "");
 }
 
 /**
@@ -95,16 +97,8 @@ export async function searchArxivByTitle(title: string): Promise<ResolvedPaper |
     `${API}?search_query=ti:${encodeURIComponent(quoted)}&max_results=5`,
   );
   if (!xml) return null;
-  const want = normalizeTitle(title);
   for (const entry of parseAtomEntries(xml)) {
-    const got = normalizeTitle(entry.title);
-    // Exact, or a short prefix difference (a lost subtitle) — a generous
-    // prefix rule would conflate "Strategic classification" with
-    // "Strategic classification made practical".
-    const prefixOk =
-      (got.startsWith(want) || want.startsWith(got)) &&
-      Math.max(got.length, want.length) <= Math.min(got.length, want.length) * 1.25;
-    if (got === want || prefixOk) return toResolved(entry);
+    if (titlesRoughlyEqual(entry.title, title)) return toResolved(entry);
   }
   return null;
 }

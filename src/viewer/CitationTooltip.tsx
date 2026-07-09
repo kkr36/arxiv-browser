@@ -61,7 +61,7 @@ export function CitationTooltip({
           </div>
           {paper.abstract && <div className="citation-tooltip-abstract">{paper.abstract}</div>}
           <div className="citation-tooltip-footer">
-            {paper.pdfUrl ? "Click to open here" : "Click to open on Semantic Scholar"}
+            {paper.pdfUrl ? "Click to open here" : "Click to open the paper page"}
           </div>
         </div>
       )}

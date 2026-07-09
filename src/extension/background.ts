@@ -6,6 +6,8 @@ import {
   maybeKnownPaperUrl,
   resolveKnownPaperPdfUrl,
 } from "../core/pdfSources";
+import { extractDoi } from "../core/metadata/identifiers";
+import { MAILTO } from "../core/metadata/politeness";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
@@ -169,6 +171,9 @@ async function findPublicPdfBackground(
     if (pdfUrl) return { pdfUrl, title: title || undefined, source: "reference-url" };
   }
 
+  const unpaywall = await findUnpaywallPdf(rawText, title);
+  if (unpaywall) return unpaywall;
+
   const openAlex = await findOpenAlexPdf(title || rawText);
   if (openAlex) return openAlex;
 
@@ -176,6 +181,31 @@ async function findPublicPdfBackground(
   for (const url of await findWebPdfCandidates(queryTitle)) {
     const pdfUrl = await validatePdfUrl(url);
     if (pdfUrl) return { pdfUrl, title: title || undefined, source: "web-search" };
+  }
+  return null;
+}
+
+/** Unpaywall is DOI-keyed and the canonical open-access index, so when the
+ * reference carries a DOI it beats searching by title. */
+async function findUnpaywallPdf(
+  rawText: string,
+  title: string,
+): Promise<PublicPdfSearchResult | null> {
+  const doi = extractDoi(rawText);
+  if (!doi) return null;
+  const json = await fetchJsonBackground<{
+    is_oa?: boolean;
+    best_oa_location?: { url_for_pdf?: string | null; url?: string | null } | null;
+    oa_locations?: Array<{ url_for_pdf?: string | null; url?: string | null }> | null;
+  }>(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(MAILTO)}`);
+  if (!json.data?.is_oa) return null;
+
+  const locations = [json.data.best_oa_location, ...(json.data.oa_locations ?? [])];
+  for (const candidate of unique(
+    locations.flatMap((l) => [l?.url_for_pdf, l?.url]).filter((u): u is string => !!u),
+  )) {
+    const pdfUrl = await validatePdfUrl(candidate);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "unpaywall" };
   }
   return null;
 }

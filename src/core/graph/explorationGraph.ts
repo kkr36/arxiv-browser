@@ -11,9 +11,9 @@ export interface GraphNode {
   year?: number;
   venue?: string;
   abstract?: string;
-  /** "external" papers had no fetchable PDF — they open on Semantic Scholar in a new tab. */
+  /** "external" papers had no fetchable PDF — they open their web page in a new tab. */
   kind: "pdf" | "external" | "author";
-  source?: "google-scholar" | "semantic-scholar";
+  source?: "google-scholar" | "semantic-scholar" | "openalex";
   googleScholarUrl?: string;
   homepage?: string;
   paperCount?: number;
@@ -39,7 +39,7 @@ export interface ExplorationGraph {
 export const EMPTY_GRAPH: ExplorationGraph = { nodes: [], edges: [] };
 
 export function nodeIdForPaper(paper: ResolvedPaper): string {
-  return paper.pdfUrl ?? paper.semanticScholarUrl ?? `title:${paper.title}`;
+  return paper.pdfUrl ?? paper.pageUrl ?? paper.semanticScholarUrl ?? `title:${paper.title}`;
 }
 
 export function nodeFromPaper(paper: ResolvedPaper): GraphNode {
@@ -48,7 +48,10 @@ export function nodeFromPaper(paper: ResolvedPaper): GraphNode {
     title: paper.title,
     address: paper.pdfUrl,
     pdfUrl: paper.pdfUrl,
-    semanticScholarUrl: paper.semanticScholarUrl,
+    // The node's "web page" link; kept under the historical field name so
+    // saved sessions round-trip. Newly resolved papers carry a landing page
+    // (doi.org/publisher) here rather than a Semantic Scholar page.
+    semanticScholarUrl: paper.pageUrl ?? paper.semanticScholarUrl,
     authors: paper.authors,
     year: paper.year,
     venue: paper.venue,

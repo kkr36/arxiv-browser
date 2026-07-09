@@ -7,11 +7,21 @@ import {
   type S2Paper,
 } from "../semanticScholar/client";
 import { toResolvedPaper } from "../semanticScholar/resolvePaper";
+import {
+  findOaAuthorIdViaWork,
+  getOaAuthorPage,
+  searchOaAuthorByName,
+  shortOpenAlexId,
+} from "../metadata/openalex";
 
 export function looksLikeAuthorUrl(raw: string): boolean {
   try {
     const url = new URL(raw.trim());
-    return isGoogleScholarProfile(url) || parseSemanticScholarAuthorId(url) !== null;
+    return (
+      isGoogleScholarProfile(url) ||
+      parseSemanticScholarAuthorId(url) !== null ||
+      parseOpenAlexAuthorId(url) !== null
+    );
   } catch {
     return false;
   }
@@ -20,6 +30,13 @@ export function looksLikeAuthorUrl(raw: string): boolean {
 export async function resolveAuthorInput(raw: string): Promise<ResolvedAuthorPage> {
   const input = raw.trim();
   const url = new URL(input);
+  const oaId = parseOpenAlexAuthorId(url);
+  if (oaId) {
+    const author = await getOaAuthorPage(oaId);
+    if (!author) throw new Error("OpenAlex did not find that author.");
+    return author;
+  }
+
   const s2Id = parseSemanticScholarAuthorId(url);
   if (s2Id) {
     const author = await getAuthorById(s2Id);
@@ -29,24 +46,33 @@ export async function resolveAuthorInput(raw: string): Promise<ResolvedAuthorPag
 
   if (isGoogleScholarProfile(url)) {
     const scholar = await resolveGoogleScholarProfile(url.toString());
-    const fallback = scholar.name ? await searchAuthorByName(scholar.name).catch(() => null) : null;
-    if (fallback?.papers?.length) {
-      const s2 = authorPageFromS2(fallback);
+    const fallback = scholar.name
+      ? await resolveByNameSearch(scholar.name).catch(() => null)
+      : null;
+    if (fallback?.works.length) {
       return {
-        ...s2,
+        ...fallback,
         id: `scholar:${googleScholarUserId(url) ?? scholar.url}`,
         source: "google-scholar",
         googleScholarUrl: scholar.url,
         url: scholar.url,
-        works: mergeWorks(scholar.works, s2.works),
+        works: mergeWorks(scholar.works, fallback.works),
       };
     }
     return scholar;
   }
 
-  throw new Error("Enter a Google Scholar profile URL or Semantic Scholar author URL.");
+  throw new Error(
+    "Enter a Google Scholar, OpenAlex, or Semantic Scholar author profile URL.",
+  );
 }
 
+/**
+ * Resolution order favors precision over recall: explicit ids first, then
+ * disambiguation through a paper the author is known to appear on (name
+ * search on any scholarly service ranks namesakes by prominence, which is
+ * how author pages end up wrong), and name search only as a last resort.
+ */
 export async function resolveAuthorRef(ref: AuthorProfileRef): Promise<ResolvedAuthorPage> {
   const override = KNOWN_AUTHOR_OVERRIDES.get(normalizeLookupName(ref.name));
   if (override) {
@@ -61,6 +87,10 @@ export async function resolveAuthorRef(ref: AuthorProfileRef): Promise<ResolvedA
     };
   }
 
+  if (ref.openAlexAuthorId) {
+    const author = await getOaAuthorPage(ref.openAlexAuthorId);
+    if (author) return author;
+  }
   if (ref.semanticScholarAuthorId) {
     const author = await getAuthorById(ref.semanticScholarAuthorId);
     if (author) return authorPageFromS2(author);
@@ -73,14 +103,35 @@ export async function resolveAuthorRef(ref: AuthorProfileRef): Promise<ResolvedA
     }
   }
   if (ref.googleScholarUrl) return resolveAuthorInput(ref.googleScholarUrl);
-  const author = await searchAuthorByName(ref.name);
-  if (author) return authorPageFromS2(author);
+
+  if (ref.paperHint) {
+    const viaWork = await findOaAuthorIdViaWork(ref.name, ref.paperHint).catch(() => null);
+    if (viaWork) {
+      const author = await getOaAuthorPage(viaWork);
+      if (author) return author;
+    }
+  }
+
+  const byName = await resolveByNameSearch(ref.name).catch(() => null);
+  if (byName) return byName;
+
   return {
     id: `author:${ref.name.toLowerCase()}`,
     name: ref.name,
-    source: "semantic-scholar",
+    source: "openalex",
     works: [],
   };
+}
+
+/** Exact-name OpenAlex search, then Semantic Scholar as the final fallback. */
+async function resolveByNameSearch(name: string): Promise<ResolvedAuthorPage | null> {
+  const oaAuthor = await searchOaAuthorByName(name).catch(() => null);
+  if (oaAuthor?.id) {
+    const page = await getOaAuthorPage(shortOpenAlexId(oaAuthor.id));
+    if (page) return page;
+  }
+  const s2Author = await searchAuthorByName(name).catch(() => null);
+  return s2Author ? authorPageFromS2(s2Author) : null;
 }
 
 const KNOWN_AUTHOR_OVERRIDES = new Map([
@@ -118,14 +169,17 @@ export function paperFromAuthorWork(work: AuthorWork) {
     year: work.year,
     venue: work.venue,
     pdfUrl: work.pdfUrl,
+    pageUrl: work.pageUrl,
     semanticScholarUrl: work.semanticScholarUrl,
     source: work.pdfUrl
       ? work.pdfUrl.includes("arxiv.org/pdf/")
         ? "arxiv"
         : "direct-pdf"
-      : work.semanticScholarUrl
-        ? "semantic-scholar-page"
-        : "none",
+      : work.pageUrl
+        ? "page"
+        : work.semanticScholarUrl
+          ? "semantic-scholar-page"
+          : "none",
   } as const;
 }
 
@@ -218,6 +272,12 @@ function parseSemanticScholarAuthorId(url: URL): string | null {
   return match?.[1] ?? null;
 }
 
+function parseOpenAlexAuthorId(url: URL): string | null {
+  if (!url.hostname.replace(/^www\./, "").endsWith("openalex.org")) return null;
+  const match = url.pathname.match(/^\/(?:authors\/)?(A\d+)\/?$/i);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
 function textFromFirstMatch(html: string, re: RegExp): string | null {
   const match = html.match(re);
   return match ? cleanHtmlText(match[1]) : null;
@@ -258,6 +318,7 @@ function mergeWorks(primary: AuthorWork[], fallback: AuthorWork[]): AuthorWork[]
       venue: existing.venue ?? work.venue,
       abstract: existing.abstract ?? work.abstract,
       pdfUrl: existing.pdfUrl ?? work.pdfUrl,
+      pageUrl: existing.pageUrl ?? work.pageUrl,
       semanticScholarUrl: existing.semanticScholarUrl ?? work.semanticScholarUrl,
       rawText: existing.rawText ?? work.rawText,
     });

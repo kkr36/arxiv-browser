@@ -55,9 +55,14 @@ export interface CitationMarker {
 
 export interface AuthorProfileRef {
   name: string;
+  openAlexAuthorId?: string;
   semanticScholarAuthorId?: string;
   semanticScholarUrl?: string;
   googleScholarUrl?: string;
+  /** A paper this author appears on. Author name search is unreliable on
+   * every scholarly service (namesakes rank by prominence), so profile
+   * resolution goes through a known work's authorship list when possible. */
+  paperHint?: { doi?: string; arxivId?: string; title?: string };
 }
 
 export interface AuthorMarker {
@@ -76,6 +81,8 @@ export interface AuthorWork {
   venue?: string;
   abstract?: string;
   pdfUrl?: string;
+  /** Landing page (doi.org, publisher, OpenAlex) when no PDF is known. */
+  pageUrl?: string;
   semanticScholarUrl?: string;
   rawText?: string;
 }
@@ -83,10 +90,11 @@ export interface AuthorWork {
 export interface ResolvedAuthorPage {
   id: string;
   name: string;
-  source: "google-scholar" | "semantic-scholar";
+  source: "google-scholar" | "semantic-scholar" | "openalex";
   url?: string;
   googleScholarUrl?: string;
   semanticScholarUrl?: string;
+  openAlexUrl?: string;
   homepage?: string;
   paperCount?: number;
   citationCount?: number;
@@ -101,7 +109,10 @@ export interface ResolvedPaper {
   authorProfiles?: AuthorProfileRef[];
   year?: number;
   venue?: string;
+  doi?: string;
   pdfUrl?: string;
+  /** Landing page (doi.org, publisher, OpenAlex) when no PDF is known. */
+  pageUrl?: string;
   semanticScholarUrl?: string;
-  source: "direct-pdf" | "arxiv" | "semantic-scholar-page" | "none";
+  source: "direct-pdf" | "arxiv" | "page" | "semantic-scholar-page" | "none";
 }

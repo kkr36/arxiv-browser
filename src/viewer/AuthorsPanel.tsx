@@ -177,6 +177,7 @@ function lastNameFirst(name: string): string {
 
 function authorKey(author: AuthorProfileRef): string {
   return (
+    author.openAlexAuthorId ??
     author.semanticScholarAuthorId ??
     author.semanticScholarUrl ??
     author.googleScholarUrl ??
@@ -187,6 +188,7 @@ function authorKey(author: AuthorProfileRef): string {
 }
 
 function authorDetail(author: AuthorProfileRef): string {
+  if (author.openAlexAuthorId) return "OpenAlex";
   if (author.semanticScholarAuthorId) return "Semantic Scholar";
   if (author.semanticScholarUrl) return "Semantic Scholar";
   if (author.googleScholarUrl) return "Google Scholar";

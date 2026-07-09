@@ -5,6 +5,8 @@ import {
   maybeKnownPaperUrl,
   resolveKnownPaperPdfUrl,
 } from "./src/core/pdfSources";
+import { extractDoi } from "./src/core/metadata/identifiers";
+import { MAILTO } from "./src/core/metadata/politeness";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
@@ -12,7 +14,7 @@ const PDF_SEARCH_TIMEOUT_MS = 12_000;
 interface PublicPdfSearchResult {
   pdfUrl: string;
   title?: string;
-  source: "openalex" | "web-search" | "reference-url";
+  source: "unpaywall" | "openalex" | "web-search" | "reference-url";
 }
 
 /**
@@ -88,8 +90,15 @@ function pdfProxyPlugin(ieeeXploreCookie?: string): Plugin {
  * `x-api-key` for Semantic Scholar requests — keeping the key out of
  * client-side code. `Retry-After` is forwarded so the client can pace
  * retries after a 429.
+ *
+ * If `OPENALEX_API_KEY` is set, it is appended as `api_key=` to OpenAlex
+ * requests the same way — OpenAlex's free anonymous pool is metered at
+ * $0.10/day (easy to exhaust with normal hover traffic), a free API key
+ * raises that to $1/day. Kept server-side for the same reason: a key baked
+ * into client code is readable by anyone and would let others draw down the
+ * owner's daily budget.
  */
-function jsonProxyPlugin(s2ApiKey?: string): Plugin {
+function jsonProxyPlugin(s2ApiKey?: string, openAlexApiKey?: string): Plugin {
   return {
     name: "json-proxy",
     configureServer(server) {
@@ -105,10 +114,14 @@ function jsonProxyPlugin(s2ApiKey?: string): Plugin {
           const headers: Record<string, string> = {
             "User-Agent": "arxiv-browser/0.1 (+local dev proxy)",
           };
-          if (s2ApiKey && new URL(target).hostname.endsWith("semanticscholar.org")) {
+          const targetUrl = new URL(target);
+          if (s2ApiKey && targetUrl.hostname.endsWith("semanticscholar.org")) {
             headers["x-api-key"] = s2ApiKey;
           }
-          const upstream = await fetch(target, {
+          if (openAlexApiKey && targetUrl.hostname.endsWith("openalex.org")) {
+            targetUrl.searchParams.set("api_key", openAlexApiKey);
+          }
+          const upstream = await fetch(targetUrl, {
             headers,
             signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
           });
@@ -176,7 +189,7 @@ function sembleProxyPlugin(sembleApiKey?: string): Plugin {
   };
 }
 
-function publicPdfSearchPlugin(ieeeXploreCookie?: string): Plugin {
+function publicPdfSearchPlugin(ieeeXploreCookie?: string, openAlexApiKey?: string): Plugin {
   return {
     name: "public-pdf-search",
     configureServer(server) {
@@ -191,7 +204,7 @@ function publicPdfSearchPlugin(ieeeXploreCookie?: string): Plugin {
         }
 
         try {
-          const result = await findPublicPdfServer(title, rawText, ieeeXploreCookie);
+          const result = await findPublicPdfServer(title, rawText, ieeeXploreCookie, openAlexApiKey);
           res.statusCode = 200;
           res.setHeader("Content-Type", "application/json");
           res.setHeader("Access-Control-Allow-Origin", "*");
@@ -210,13 +223,17 @@ async function findPublicPdfServer(
   title: string,
   rawText: string,
   ieeeXploreCookie?: string,
+  openAlexApiKey?: string,
 ): Promise<PublicPdfSearchResult | null> {
   for (const url of [...knownPaperUrlsFromText(rawText), ...urlsFromReference(rawText)]) {
     const pdfUrl = await validatePdfUrl(url, ieeeXploreCookie);
     if (pdfUrl) return { pdfUrl, title: title || undefined, source: "reference-url" };
   }
 
-  const openAlex = await findOpenAlexPdf(title || rawText, ieeeXploreCookie);
+  const unpaywall = await findUnpaywallPdf(rawText, title, ieeeXploreCookie);
+  if (unpaywall) return unpaywall;
+
+  const openAlex = await findOpenAlexPdf(title || rawText, ieeeXploreCookie, openAlexApiKey);
   if (openAlex) return openAlex;
 
   const queryTitle = title || rawText.slice(0, 180);
@@ -227,14 +244,42 @@ async function findPublicPdfServer(
   return null;
 }
 
+/** Unpaywall is DOI-keyed and the canonical open-access index, so when the
+ * reference carries a DOI it beats searching by title. */
+async function findUnpaywallPdf(
+  rawText: string,
+  title: string,
+  ieeeXploreCookie?: string,
+): Promise<PublicPdfSearchResult | null> {
+  const doi = extractDoi(rawText);
+  if (!doi) return null;
+  const json = await fetchJsonServer<{
+    is_oa?: boolean;
+    best_oa_location?: { url_for_pdf?: string | null; url?: string | null } | null;
+    oa_locations?: Array<{ url_for_pdf?: string | null; url?: string | null }> | null;
+  }>(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(MAILTO)}`);
+  if (!json?.is_oa) return null;
+
+  const locations = [json.best_oa_location, ...(json.oa_locations ?? [])];
+  for (const candidate of unique(
+    locations.flatMap((l) => [l?.url_for_pdf, l?.url]).filter((u): u is string => !!u),
+  )) {
+    const pdfUrl = await validatePdfUrl(candidate, ieeeXploreCookie);
+    if (pdfUrl) return { pdfUrl, title: title || undefined, source: "unpaywall" };
+  }
+  return null;
+}
+
 async function findOpenAlexPdf(
   query: string,
   ieeeXploreCookie?: string,
+  openAlexApiKey?: string,
 ): Promise<PublicPdfSearchResult | null> {
   if (query.length < 8) return null;
   const url =
     "https://api.openalex.org/works?per-page=5&select=title,open_access,primary_location,locations&search=" +
-    encodeURIComponent(query);
+    encodeURIComponent(query) +
+    (openAlexApiKey ? `&api_key=${encodeURIComponent(openAlexApiKey)}` : "");
   const json = await fetchJsonServer<{
     results?: Array<{
       title?: string;
@@ -462,9 +507,9 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       pdfProxyPlugin(env.IEEE_XPLORE_COOKIE),
-      jsonProxyPlugin(env.S2_API_KEY),
+      jsonProxyPlugin(env.S2_API_KEY, env.OPENALEX_API_KEY),
       sembleProxyPlugin(env.SEMBLE_API_KEY),
-      publicPdfSearchPlugin(env.IEEE_XPLORE_COOKIE),
+      publicPdfSearchPlugin(env.IEEE_XPLORE_COOKIE, env.OPENALEX_API_KEY),
     ],
     build: {
       rollupOptions: {

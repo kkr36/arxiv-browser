@@ -9,7 +9,7 @@ export interface PublicPdfSearchRequest {
 export interface PublicPdfSearchResult {
   pdfUrl: string;
   title?: string;
-  source: "openalex" | "web-search" | "reference-url";
+  source: "unpaywall" | "openalex" | "web-search" | "reference-url";
 }
 
 export async function findPublicPdf(

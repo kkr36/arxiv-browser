@@ -10,8 +10,7 @@ import {
   resolveAuthorInput,
   resolveAuthorRef,
 } from "./core/authors/resolveAuthor";
-import { getPaperByArxivId } from "./core/semanticScholar/client";
-import { toResolvedPaper } from "./core/semanticScholar/resolvePaper";
+import { fetchArxivById } from "./core/arxiv/searchArxiv";
 import type { AuthorMarker, AuthorProfileRef, ResolvedAuthorPage, ResolvedPaper } from "./core/types";
 import {
   EMPTY_GRAPH,
@@ -501,16 +500,17 @@ export default function App({
       void openFromUrl(paper.pdfUrl, paper.title, { kind: "citation", paper, parentId });
       return;
     }
-    if (paper.semanticScholarUrl) {
+    const pageUrl = paper.pageUrl ?? paper.semanticScholarUrl;
+    if (pageUrl) {
       commitGraph((g) => addPaperNode(g, nodeFromPaper(paper), parentId));
-      const win = window.open(paper.semanticScholarUrl, "_blank", "noopener");
+      const win = window.open(pageUrl, "_blank", "noopener");
       if (!win) {
         // Popup blocked (resolution outlived the click's user activation) —
         // surface the link so opening it is a direct user gesture.
         setStatus({
           kind: "error",
           message: `No PDF found for “${paper.title}”.`,
-          link: { url: paper.semanticScholarUrl, text: "Open on Semantic Scholar" },
+          link: { url: pageUrl, text: "Open paper page" },
         });
       }
       return;
@@ -803,11 +803,25 @@ function authorsForPaper(
   paper: ResolvedPaper | undefined,
   pages: CitationData["pages"],
 ): AuthorProfileRef[] {
-  const metadataAuthors =
+  const metadataAuthors: AuthorProfileRef[] =
     paper?.authorProfiles?.length
       ? paper.authorProfiles
       : paper?.authors.map((name) => ({ name })) ?? [];
-  return dedupeAuthors([...metadataAuthors, ...extractAuthorCandidates(pages)]);
+  // Every ref here is an author *of this paper*, so profile resolution can
+  // disambiguate them through this paper's authorship list instead of an
+  // unreliable name search — including names scraped from the PDF header.
+  const paperHint = paper
+    ? {
+        doi: paper.doi,
+        arxivId: paper.pdfUrl?.match(/arxiv\.org\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1],
+        title: paper.title,
+      }
+    : undefined;
+  return dedupeAuthors(
+    [...metadataAuthors, ...extractAuthorCandidates(pages)].map((author) =>
+      author.paperHint || !paperHint ? author : { ...author, paperHint },
+    ),
+  );
 }
 
 function dedupeAuthors(authors: AuthorProfileRef[]): AuthorProfileRef[] {
@@ -818,6 +832,7 @@ function dedupeAuthors(authors: AuthorProfileRef[]): AuthorProfileRef[] {
     const name = author.name.replace(/\s+/g, " ").trim();
     const nameKey = name.toLowerCase();
     const key = (
+      author.openAlexAuthorId ??
       author.semanticScholarAuthorId ??
       author.semanticScholarUrl ??
       author.googleScholarUrl ??
@@ -837,9 +852,9 @@ function graphsEqual(a: ExplorationGraph, b: ExplorationGraph): boolean {
 }
 
 /** Root nodes start out labeled with what the user typed (a URL). Swap in
- * real metadata: Semantic Scholar by arXiv id when the URL is an arXiv PDF
- * (title, authors, abstract — feeds the hover preview and export), else the
- * PDF's own metadata title. Best-effort; the URL label stays on failure. */
+ * real metadata: the arXiv API by id when the URL is an arXiv PDF (title,
+ * authors, abstract — feeds the hover preview and export), else the PDF's
+ * own metadata title. Best-effort; the URL label stays on failure. */
 async function enrichRootNode(
   url: string,
   nodeId: string,
@@ -850,9 +865,8 @@ async function enrichRootNode(
   const arxivId = url.match(/arxiv\.org\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1];
   if (arxivId) {
     try {
-      const s2 = await getPaperByArxivId(arxivId);
-      if (s2) {
-        const paper = toResolvedPaper(s2);
+      const paper = await fetchArxivById(arxivId);
+      if (paper) {
         const node = nodeFromPaper(paper);
         updateGraph((g) =>
           g.nodes.some((existing) => existing.id === nodeId)

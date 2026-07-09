@@ -27,7 +27,7 @@ export function AuthorPageView({ author, onOpenPaper }: AuthorPageViewProps) {
   }
 
   function handleOpenWork(index: number, work: AuthorWork) {
-    if (!work.pdfUrl && !work.semanticScholarUrl) {
+    if (!work.pdfUrl && !work.pageUrl && !work.semanticScholarUrl) {
       handleSearchPdf(index, work);
       return;
     }
@@ -57,7 +57,11 @@ export function AuthorPageView({ author, onOpenPaper }: AuthorPageViewProps) {
     author.paperCount !== undefined ? `${author.paperCount} papers` : "",
     author.citationCount !== undefined ? `${author.citationCount} citations` : "",
     author.hIndex !== undefined ? `h-index ${author.hIndex}` : "",
-    author.source === "google-scholar" ? "Google Scholar" : "Semantic Scholar",
+    author.source === "google-scholar"
+      ? "Google Scholar"
+      : author.source === "openalex"
+        ? "OpenAlex"
+        : "Semantic Scholar",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -74,6 +78,11 @@ export function AuthorPageView({ author, onOpenPaper }: AuthorPageViewProps) {
             {author.googleScholarUrl && (
               <a href={author.googleScholarUrl} target="_blank" rel="noopener noreferrer">
                 Google Scholar
+              </a>
+            )}
+            {author.openAlexUrl && (
+              <a href={author.openAlexUrl} target="_blank" rel="noopener noreferrer">
+                OpenAlex
               </a>
             )}
             {author.semanticScholarUrl && (
@@ -103,7 +112,11 @@ export function AuthorPageView({ author, onOpenPaper }: AuthorPageViewProps) {
                   </button>
                   <div className="author-work-actions">
                     <button onClick={() => handleOpenWork(index, work)}>
-                      {work.pdfUrl ? "Open PDF" : work.semanticScholarUrl ? "Open page" : "Find PDF"}
+                      {work.pdfUrl
+                        ? "Open PDF"
+                        : work.pageUrl ?? work.semanticScholarUrl
+                          ? "Open page"
+                          : "Find PDF"}
                     </button>
                     {!work.pdfUrl && (
                       <button
@@ -136,7 +149,7 @@ function workMeta(work: AuthorWork): string {
     authors + ((work.authors?.length ?? 0) > 5 ? ", et al." : ""),
     work.year ? String(work.year) : "",
     work.venue ?? "",
-    work.pdfUrl ? "PDF available" : work.semanticScholarUrl ? "page only" : "",
+    work.pdfUrl ? "PDF available" : work.pageUrl ?? work.semanticScholarUrl ? "page only" : "",
   ]
     .filter(Boolean)
     .join(" · ");

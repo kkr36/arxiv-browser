@@ -158,8 +158,9 @@ export function CitationsPanel({
       });
   }
 
-  function openSemanticScholar(paper: ResolvedPaper) {
-    if (paper.semanticScholarUrl) window.open(paper.semanticScholarUrl, "_blank", "noopener");
+  function openPaperPage(paper: ResolvedPaper) {
+    const pageUrl = paper.pageUrl ?? paper.semanticScholarUrl;
+    if (pageUrl) window.open(pageUrl, "_blank", "noopener");
   }
 
   return (
@@ -253,9 +254,9 @@ export function CitationsPanel({
                 )}
                 {itemStatus?.kind === "no-pdf" && (
                   <div className="cites-item-status">
-                    No open PDF in Semantic Scholar.
-                    {itemStatus.paper.semanticScholarUrl && (
-                      <button type="button" onClick={() => openSemanticScholar(itemStatus.paper)}>
+                    No open-access PDF found.
+                    {(itemStatus.paper.pageUrl ?? itemStatus.paper.semanticScholarUrl) && (
+                      <button type="button" onClick={() => openPaperPage(itemStatus.paper)}>
                         Open page
                       </button>
                     )}
@@ -281,16 +282,17 @@ export function CitationsPanel({
                 {itemStatus?.kind === "search-not-found" && (
                   <div className="cites-item-status">
                     No public PDF found.
-                    {itemStatus.paper && itemStatus.paper.semanticScholarUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (itemStatus.paper) openSemanticScholar(itemStatus.paper);
-                        }}
-                      >
-                        Open page
-                      </button>
-                    )}
+                    {itemStatus.paper &&
+                      (itemStatus.paper.pageUrl ?? itemStatus.paper.semanticScholarUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (itemStatus.paper) openPaperPage(itemStatus.paper);
+                          }}
+                        >
+                          Open page
+                        </button>
+                      )}
                   </div>
                 )}
                 {itemStatus?.kind === "search-error" && (
