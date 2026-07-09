@@ -131,6 +131,11 @@ export function PdfViewer({
         pageDiv.className = "pdf-page";
         pageDiv.style.width = `${viewport.width}px`;
         pageDiv.style.height = `${viewport.height}px`;
+        // pdf.js's TextLayer sizes/positions its spans with
+        // calc(var(--scale-factor) * ...); without this variable the
+        // declarations are invalid and selectable text drifts off the
+        // painted glyphs.
+        pageDiv.style.setProperty("--scale-factor", String(viewport.scale));
 
         const canvas = document.createElement("canvas");
         canvas.width = Math.floor(viewport.width * outputScale);
