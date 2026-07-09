@@ -12,6 +12,10 @@ import { MAILTO } from "../core/metadata/politeness";
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
 const PENDING_ROOT_KEY = "pendingRootRequest";
+const OPENALEX_API_KEY_KEY = "openAlexApiKey";
+const S2_API_KEY_KEY = "semanticScholarApiKey";
+let openAlexApiKey: string | null = null;
+let s2ApiKey: string | null = null;
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id || !tab.url) return;
@@ -24,6 +28,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     .then(sendResponse)
     .catch((err) => sendResponse({ ok: false, error: messageOf(err) } satisfies ExtensionResponse));
   return true;
+});
+
+chrome.storage.local.get([OPENALEX_API_KEY_KEY, S2_API_KEY_KEY]).then((items) => {
+  openAlexApiKey = stringValue(items[OPENALEX_API_KEY_KEY]);
+  s2ApiKey = stringValue(items[S2_API_KEY_KEY]);
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  if (changes[OPENALEX_API_KEY_KEY]) {
+    openAlexApiKey = stringValue(changes[OPENALEX_API_KEY_KEY].newValue);
+  }
+  if (changes[S2_API_KEY_KEY]) {
+    s2ApiKey = stringValue(changes[S2_API_KEY_KEY].newValue);
+  }
 });
 
 async function handleMessage(message: unknown): Promise<ExtensionResponse> {
@@ -134,7 +153,9 @@ async function fetchPdfBytes(url: string): Promise<ArrayBuffer> {
 }
 
 async function fetchJsonBackground<T>(url: string): Promise<JsonResponse<T>> {
-  const res = await fetch(url, {
+  const request = await withMetadataApiAuth(url);
+  const res = await fetch(request.url, {
+    headers: request.headers,
     redirect: "follow",
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
@@ -150,7 +171,9 @@ async function fetchJsonBackground<T>(url: string): Promise<JsonResponse<T>> {
 
 async function fetchTextBackground(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    const request = await withMetadataApiAuth(url);
+    const res = await fetch(request.url, {
+      headers: request.headers,
       redirect: "follow",
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
@@ -158,6 +181,37 @@ async function fetchTextBackground(url: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function withMetadataApiAuth(
+  url: string,
+): Promise<{ url: string; headers?: Record<string, string> }> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.endsWith("openalex.org")) {
+      const key = openAlexApiKey ?? (await readStoredApiKeys()).openAlex;
+      if (key) parsed.searchParams.set("api_key", key);
+      return { url: parsed.toString() };
+    }
+    if (parsed.hostname.endsWith("semanticscholar.org")) {
+      const key = s2ApiKey ?? (await readStoredApiKeys()).s2;
+      return key ? { url, headers: { "x-api-key": key } } : { url };
+    }
+  } catch {
+    // Keep the original URL below.
+  }
+  return { url };
+}
+
+async function readStoredApiKeys(): Promise<{ openAlex: string | null; s2: string | null }> {
+  const items = await chrome.storage.local.get([OPENALEX_API_KEY_KEY, S2_API_KEY_KEY]);
+  openAlexApiKey = stringValue(items[OPENALEX_API_KEY_KEY]);
+  s2ApiKey = stringValue(items[S2_API_KEY_KEY]);
+  return { openAlex: openAlexApiKey, s2: s2ApiKey };
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function findPublicPdfBackground(

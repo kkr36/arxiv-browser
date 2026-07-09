@@ -1,4 +1,4 @@
-import { fetchJson } from "../net/fetchJson";
+import { fetchJson, type JsonResponse } from "../net/fetchJson";
 import { createThrottledQueue } from "../net/throttle";
 import { isLikelyProxyHostilePdfUrl } from "../semanticScholar/resolvePaper";
 import type { AuthorWork, ResolvedAuthorPage, ResolvedPaper } from "../types";
@@ -55,9 +55,16 @@ export interface OaAuthor {
 }
 
 async function oaGet<T>(path: string, params?: Record<string, string>): Promise<T | null> {
-  const search = new URLSearchParams({ ...params, mailto: MAILTO });
-  const res = await throttled(() => fetchJson<T>(`${BASE}${path}?${search}`, { viaProxy: true }));
+  const res = await oaGetResponse<T>(path, params);
   return res.ok ? res.data : null;
+}
+
+async function oaGetResponse<T>(
+  path: string,
+  params?: Record<string, string>,
+): Promise<JsonResponse<T>> {
+  const search = new URLSearchParams({ ...params, mailto: MAILTO });
+  return throttled(() => fetchJson<T>(`${BASE}${path}?${search}`, { viaProxy: true }));
 }
 
 /** OpenAlex entity ids are full URLs ("https://openalex.org/A123"); the API
@@ -323,22 +330,22 @@ export async function searchOaAuthorByName(name: string): Promise<OaAuthor | nul
 
 export async function getOaAuthorPage(authorId: string): Promise<ResolvedAuthorPage | null> {
   const id = shortOpenAlexId(authorId);
-  const [author, worksData] = await Promise.all([
-    oaGet<OaAuthor>(`/authors/${encodeURIComponent(id)}`, { select: AUTHOR_SELECT }),
-    oaGet<{ results?: OaWork[] }>("/works", {
-      filter: `authorships.author.id:${id}`,
-      sort: "cited_by_count:desc",
-      "per-page": "100",
-      select: WORK_SELECT,
-    }),
-  ]);
+  const author = await oaGet<OaAuthor>(`/authors/${encodeURIComponent(id)}`, {
+    select: AUTHOR_SELECT,
+  });
   if (!author?.display_name) return null;
 
+  const worksResponse = await getOaAuthorWorks(id);
   const works = dedupeAuthorWorks(
-    (worksData?.results ?? [])
+    (worksResponse.data?.results ?? [])
       .map(oaWorkToAuthorWork)
       .filter((w): w is AuthorWork => !!w),
   );
+  const worksLoadError = worksResponse.ok
+    ? works.length === 0 && (author.works_count ?? 0) > 0
+      ? "OpenAlex returned an empty works list even though this author profile has a nonzero works count."
+      : undefined
+    : openAlexWorksError(worksResponse);
   const url = `https://openalex.org/authors/${id}`;
   return {
     id: `openalex-author:${id}`,
@@ -349,6 +356,34 @@ export async function getOaAuthorPage(authorId: string): Promise<ResolvedAuthorP
     paperCount: author.works_count ?? undefined,
     citationCount: author.cited_by_count ?? undefined,
     hIndex: author.summary_stats?.h_index ?? undefined,
+    worksLoadError,
+    worksRetryAfterMs: worksResponse.ok ? undefined : worksResponse.retryAfterMs,
     works,
   };
+}
+
+async function getOaAuthorWorks(id: string): Promise<JsonResponse<{ results?: OaWork[] }>> {
+  const params = {
+    filter: `author.id:${id}`,
+    sort: "cited_by_count:desc",
+    "per-page": "100",
+    select: WORK_SELECT,
+  };
+  const response = await oaGetResponse<{ results?: OaWork[] }>("/works", params);
+  if (!response.ok || (response.data?.results?.length ?? 0) > 0) return response;
+
+  return oaGetResponse<{ results?: OaWork[] }>("/works", {
+    ...params,
+    filter: `authorships.author.id:${id}`,
+  });
+}
+
+function openAlexWorksError(response: JsonResponse<unknown>): string {
+  if (response.status === 429) {
+    const retry = response.retryAfterMs
+      ? ` Try again in about ${Math.ceil(response.retryAfterMs / 1000)} seconds.`
+      : "";
+    return `OpenAlex rate-limited the works request.${retry}`;
+  }
+  return `OpenAlex returned HTTP ${response.status} while loading this author's works.`;
 }

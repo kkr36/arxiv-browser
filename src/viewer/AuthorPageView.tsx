@@ -99,7 +99,13 @@ export function AuthorPageView({ author, onOpenPaper }: AuthorPageViewProps) {
         </header>
 
         {author.works.length === 0 ? (
-          <div className="author-page-empty">No works were found for this author profile.</div>
+          <div className="author-page-empty">
+            {author.worksLoadError
+              ? `${author.worksLoadError} OpenAlex reports ${
+                  author.paperCount ?? "some"
+                } works for this author.`
+              : "No works were found for this author profile."}
+          </div>
         ) : (
           <ol className="author-works">
             {author.works.map((work, index) => {

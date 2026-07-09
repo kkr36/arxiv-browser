@@ -78,23 +78,27 @@ The extension uses a background service worker for PDF, metadata (arXiv/Crossref
 
 ### OpenAlex API key (optional but recommended)
 
-OpenAlex meters its free anonymous pool at $0.10 of usage per day, which normal hovering can exhaust; a free [API key](https://openalex.org/settings/api) raises that to $1/day. Put it in `.env.local`:
+OpenAlex meters its free anonymous pool at $0.10 of usage per day, which normal hovering can exhaust; a free [API key](https://openalex.org/settings/api) raises that to $1/day.
+
+For the local web app, put it in `.env.local`:
 
 ```
 OPENALEX_API_KEY=your-key-here
 ```
 
-Like the Semantic Scholar key below, it's attached server-side by the dev-server proxy (as `api_key=` on the request) and never reaches client code — the web app always routes OpenAlex calls through the proxy for exactly this reason, even though OpenAlex's CORS headers would otherwise allow a direct browser fetch. It does not apply to the Chrome extension build, which calls OpenAlex directly from the unauthenticated pool.
+The dev-server proxy attaches it server-side as `api_key=`, so it never reaches client code.
+
+For the Chrome extension, open the extension's **Options** page from `chrome://extensions` and save your OpenAlex key there. It is stored in `chrome.storage.local` and appended by the background service worker; published extension builds do not include any developer API key.
 
 ### Semantic Scholar API key (optional)
 
-Semantic Scholar is only a last-resort fallback now (Crossref, OpenAlex, Unpaywall, and the arXiv API handle resolution and need no keys). If the fallback path matters to you, the public S2 pool is heavily rate-limited; with [an API key](https://www.semanticscholar.org/product/api#api-key), put it in `.env.local`:
+Semantic Scholar is only a last-resort fallback now (Crossref, OpenAlex, Unpaywall, and the arXiv API handle resolution and need no keys). If the fallback path matters to you, the public S2 pool is heavily rate-limited; with [an API key](https://www.semanticscholar.org/product/api#api-key), put it in `.env.local` for the local web app:
 
 ```
 S2_API_KEY=your-key-here
 ```
 
-The dev-server proxy attaches it as `x-api-key` (it never reaches client code). S2 lookups run through a serialized queue spaced ~1.1 s apart to fit the 1 request/second key budget; 429s are retried with `Retry-After`/backoff and are never cached as failures — hovering again retries.
+The dev-server proxy attaches it as `x-api-key` (it never reaches client code). For the Chrome extension, save it from the same **Options** page as the OpenAlex key; the background service worker attaches it as `x-api-key` for Semantic Scholar requests. S2 lookups run through a serialized queue spaced ~1.1 s apart to fit the 1 request/second key budget; 429s are retried with `Retry-After`/backoff and are never cached as failures — hovering again retries.
 
 ## How it works
 

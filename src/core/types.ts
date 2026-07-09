@@ -99,6 +99,8 @@ export interface ResolvedAuthorPage {
   paperCount?: number;
   citationCount?: number;
   hIndex?: number;
+  worksLoadError?: string;
+  worksRetryAfterMs?: number;
   works: AuthorWork[];
 }
 

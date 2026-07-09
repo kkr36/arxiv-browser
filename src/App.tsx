@@ -711,7 +711,7 @@ export default function App({
         )}
         {status.kind === "idle" && view?.kind === "author" && (
           <div className="status-line">
-            {view.label} · {view.author.works.length} works
+            {view.label} · {view.author.paperCount ?? view.author.works.length} works
           </div>
         )}
         {pendingRootInput && (

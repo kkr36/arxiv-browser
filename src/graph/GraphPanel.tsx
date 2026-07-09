@@ -350,7 +350,7 @@ export function GraphPanel({
               onClick={() => setManualCitationOpen((open) => !open)}
               title="Manually connect two papers with a citation edge"
             >
-              Manually Connect Nodes
+              Manually connect nodes
             </button>
             {manualCitationOpen && (
               <div className="graph-manual-citation-menu">

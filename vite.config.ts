@@ -516,6 +516,7 @@ export default defineConfig(({ mode }) => {
         input: {
           app: "index.html",
           "extension-viewer": "extension-viewer.html",
+          "extension-options": "extension-options.html",
           background: "src/extension/background.ts",
         },
         output: {
