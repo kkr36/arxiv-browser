@@ -11,6 +11,7 @@ type OverlayMarker =
  */
 export function applyCitationOverlay(
   textLayerDiv: HTMLElement,
+  pageDiv: HTMLElement,
   textDivs: HTMLElement[],
   items: PageTextItem[],
   markers: CitationMarker[],
@@ -24,7 +25,7 @@ export function applyCitationOverlay(
 
   const overlayLayer = document.createElement("div");
   overlayLayer.className = "citation-overlay-layer";
-  textLayerDiv.appendChild(overlayLayer);
+  pageDiv.appendChild(overlayLayer);
   const ctx = document.createElement("canvas").getContext("2d");
 
   for (let i = 0; i < items.length && i < textDivs.length; i++) {

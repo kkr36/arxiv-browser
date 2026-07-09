@@ -113,6 +113,9 @@ export default function App({
   const [graphOpen, setGraphOpen] = useState(true);
   const [citationsOpen, setCitationsOpen] = useState(false);
   const [authorsOpen, setAuthorsOpen] = useState(false);
+  const [pdfFullscreen, setPdfFullscreen] = useState(false);
+  const [citationHighlightsEnabled, setCitationHighlightsEnabled] = useState(true);
+  const [authorHighlightsEnabled, setAuthorHighlightsEnabled] = useState(true);
   const [focusedCitationEntry, setFocusedCitationEntry] = useState<number | null>(null);
   const [pendingRootInput, setPendingRootInput] = useState<{ id: number; input: string } | null>(
     null,
@@ -509,6 +512,10 @@ export default function App({
   const loading = status.kind === "loading";
 
   useEffect(() => {
+    if (view?.kind !== "paper") setPdfFullscreen(false);
+  }, [view?.kind]);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.altKey || (e.target instanceof HTMLElement && e.target.tagName === "INPUT")) return;
       if (e.key === "ArrowLeft") {
@@ -537,7 +544,8 @@ export default function App({
     !!history.entries[history.index]?.bytes;
 
   return (
-    <div className="app">
+    <div className={pdfFullscreen ? "app pdf-fullscreen-mode" : "app"}>
+      {!pdfFullscreen && (
       <header className="app-header">
         <h1>{title}</h1>
         <div className="load-bar">
@@ -659,6 +667,7 @@ export default function App({
           </div>
         )}
       </header>
+      )}
 
       <div className="app-main">
         {view?.kind === "paper" ? (
@@ -672,13 +681,19 @@ export default function App({
             onOpenPaper={handleOpenPaper}
             onOpenAuthor={handleOpenAuthor}
             onDownloadPdf={canDownloadCurrentPdf ? handleDownloadCurrentPdf : undefined}
+            isFullscreen={pdfFullscreen}
+            onToggleFullscreen={() => setPdfFullscreen((value) => !value)}
+            showCitationHighlights={citationHighlightsEnabled}
+            onToggleCitationHighlights={setCitationHighlightsEnabled}
+            showAuthorHighlights={authorHighlightsEnabled}
+            onToggleAuthorHighlights={setAuthorHighlightsEnabled}
           />
         ) : view?.kind === "author" ? (
           <AuthorPageView author={view.author} onOpenPaper={handleOpenPaper} />
         ) : (
           <div className="app-content-empty" />
         )}
-        {citationsOpen && view?.kind === "paper" && (
+        {!pdfFullscreen && citationsOpen && view?.kind === "paper" && (
           <CitationsPanel
             entries={view.citations.entries}
             markersByPage={view.citations.markersByPage}
@@ -687,7 +702,7 @@ export default function App({
             onClose={() => setCitationsOpen(false)}
           />
         )}
-        {authorsOpen && view?.kind === "paper" && (
+        {!pdfFullscreen && authorsOpen && view?.kind === "paper" && (
           <AuthorsPanel
             authors={view.authors}
             authorMarkersByPage={view.authorMarkersByPage}
@@ -695,7 +710,7 @@ export default function App({
             onClose={() => setAuthorsOpen(false)}
           />
         )}
-        {graphOpen && (
+        {!pdfFullscreen && graphOpen && (
           <GraphPanel
             graph={graph}
             currentNodeId={currentNodeId}

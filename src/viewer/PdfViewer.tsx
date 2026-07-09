@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { TextLayer } from "pdfjs-dist";
+import { AnnotationLayer, TextLayer } from "pdfjs-dist";
 import type { PDFDocumentProxy, TextContent } from "pdfjs-dist/types/src/display/api";
+import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
+import type { IPDFLinkService } from "pdfjs-dist/types/web/interfaces";
 import type {
   AuthorMarker,
   AuthorProfileRef,
@@ -27,6 +29,12 @@ interface PdfViewerProps {
   onOpenPaper: (paper: ResolvedPaper) => void;
   onOpenAuthor?: (author: AuthorProfileRef) => void;
   onDownloadPdf?: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  showCitationHighlights?: boolean;
+  onToggleCitationHighlights?: (enabled: boolean) => void;
+  showAuthorHighlights?: boolean;
+  onToggleAuthorHighlights?: (enabled: boolean) => void;
 }
 
 interface TooltipState {
@@ -53,6 +61,12 @@ export function PdfViewer({
   onOpenPaper,
   onOpenAuthor,
   onDownloadPdf,
+  isFullscreen = false,
+  onToggleFullscreen,
+  showCitationHighlights = true,
+  onToggleCitationHighlights,
+  showAuthorHighlights = true,
+  onToggleAuthorHighlights,
 }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,6 +102,10 @@ export function PdfViewer({
   useEffect(() => () => cancelTooltipHide(), []);
 
   useEffect(() => {
+    if (!showCitationHighlights) closeTooltip();
+  }, [showCitationHighlights]);
+
+  useEffect(() => {
     const lookup = new Map<string, CitationMarker>();
     for (const markers of markersByPage.values()) {
       for (const m of markers) lookup.set(m.id, m);
@@ -117,6 +135,9 @@ export function PdfViewer({
 
     (async () => {
       const renderedPages = new Set<number>();
+      const renderedPageDivs = new Map<number, HTMLElement>();
+      const renderedViewports = new Map<number, PageViewport>();
+      const linkService = createPdfLinkService(doc, scrollRef, renderedPageDivs, renderedViewports);
       for (const pageText of pages) {
         if (isStale() || renderedPages.has(pageText.pageNumber)) continue;
         renderedPages.add(pageText.pageNumber);
@@ -129,6 +150,7 @@ export function PdfViewer({
 
         const pageDiv = document.createElement("div");
         pageDiv.className = "pdf-page";
+        pageDiv.dataset.pageNumber = String(pageText.pageNumber);
         pageDiv.style.width = `${viewport.width}px`;
         pageDiv.style.height = `${viewport.height}px`;
         // pdf.js's TextLayer sizes/positions its spans with
@@ -148,7 +170,13 @@ export function PdfViewer({
         textLayerDiv.className = "textLayer";
         pageDiv.appendChild(textLayerDiv);
 
+        const annotationLayerDiv = document.createElement("div");
+        annotationLayerDiv.className = "annotationLayer";
+        pageDiv.appendChild(annotationLayerDiv);
+
         container.appendChild(pageDiv);
+        renderedPageDivs.set(pageText.pageNumber, pageDiv);
+        renderedViewports.set(pageText.pageNumber, viewport);
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
@@ -171,13 +199,40 @@ export function PdfViewer({
         await textLayer.render();
         if (isStale()) return;
 
-        const markers = markersByPage.get(pageText.pageNumber) ?? [];
+        const annotations = await page.getAnnotations({ intent: "display" });
+        if (isStale()) return;
+        if (annotations.length > 0) {
+          const annotationLayer = new AnnotationLayer({
+            div: annotationLayerDiv,
+            page,
+            viewport: viewport.clone({ dontFlip: true }),
+            accessibilityManager: null,
+            annotationCanvasMap: null,
+            annotationEditorUIManager: null,
+            structTreeLayer: null,
+          });
+          await annotationLayer.render({
+            annotations,
+            div: annotationLayerDiv,
+            page,
+            viewport: viewport.clone({ dontFlip: true }),
+            linkService,
+            renderForms: false,
+          });
+          if (isStale()) return;
+        }
+
+        const markers = showCitationHighlights ? (markersByPage.get(pageText.pageNumber) ?? []) : [];
+        const authorMarkers = showAuthorHighlights
+          ? (authorMarkersByPage.get(pageText.pageNumber) ?? [])
+          : [];
         applyCitationOverlay(
           textLayerDiv,
+          pageDiv,
           textLayer.textDivs,
           pageText.items,
           markers,
-          authorMarkersByPage.get(pageText.pageNumber) ?? [],
+          authorMarkers,
         );
       }
       if (!isStale()) setRenderVersion((v) => v + 1);
@@ -188,7 +243,14 @@ export function PdfViewer({
     return () => {
       cancelled = true;
     };
-  }, [doc, pages, markersByPage, authorMarkersByPage]);
+  }, [
+    doc,
+    pages,
+    markersByPage,
+    authorMarkersByPage,
+    showCitationHighlights,
+    showAuthorHighlights,
+  ]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -357,22 +419,72 @@ export function PdfViewer({
   }
 
   return (
-    <div ref={scrollRef} className="pdf-viewer-scroll">
-      {onDownloadPdf && (
-        <button
-          type="button"
-          className="pdf-download-button"
-          onClick={onDownloadPdf}
-          title="Download PDF"
-          aria-label="Download PDF"
+    <div ref={scrollRef} className={isFullscreen ? "pdf-viewer-scroll fullscreen" : "pdf-viewer-scroll"}>
+      <div className="pdf-floating-controls" aria-label="PDF view controls">
+        <div className="pdf-icon-row">
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              className="pdf-icon-button"
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
+              aria-label={isFullscreen ? "Exit PDF fullscreen" : "PDF fullscreen"}
+            >
+              {isFullscreen ? (
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 3v5H3" />
+                  <path d="M16 3v5h5" />
+                  <path d="M8 21v-5H3" />
+                  <path d="M16 21v-5h5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 8V3h5" />
+                  <path d="M21 8V3h-5" />
+                  <path d="M3 16v5h5" />
+                  <path d="M21 16v5h-5" />
+                </svg>
+              )}
+            </button>
+          )}
+          {onDownloadPdf && (
+            <button
+              type="button"
+              className="pdf-icon-button"
+              onClick={onDownloadPdf}
+              title="Download PDF"
+              aria-label="Download PDF"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+            </button>
+          )}
+        </div>
+        <label
+          className="pdf-highlight-toggle"
+          title="Browser-added citation highlights. Turn off to use the PDF's original citation links."
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 3v12" />
-            <path d="m7 10 5 5 5-5" />
-            <path d="M5 21h14" />
-          </svg>
-        </button>
-      )}
+          <input
+            type="checkbox"
+            checked={showCitationHighlights}
+            onChange={(e) => onToggleCitationHighlights?.(e.currentTarget.checked)}
+            disabled={!onToggleCitationHighlights}
+          />
+          <span>Citation highlights</span>
+        </label>
+        <label className="pdf-highlight-toggle" title="Browser-added author name highlights">
+          <input
+            type="checkbox"
+            checked={showAuthorHighlights}
+            onChange={(e) => onToggleAuthorHighlights?.(e.currentTarget.checked)}
+            disabled={!onToggleAuthorHighlights}
+          />
+          <span>Author highlights</span>
+        </label>
+      </div>
       {renderError && <div className="status-line error">{renderError}</div>}
       <div ref={containerRef} className="pdf-viewer" />
       {tooltip && (
@@ -392,4 +504,80 @@ export function PdfViewer({
       )}
     </div>
   );
+}
+
+function createPdfLinkService(
+  doc: PDFDocumentProxy,
+  scrollRef: React.RefObject<HTMLDivElement>,
+  pageDivs: Map<number, HTMLElement>,
+  viewports: Map<number, PageViewport>,
+): IPDFLinkService {
+  let currentPage = 1;
+  const scrollToPage = (pageNumber: number, y = 0) => {
+    const pageDiv = pageDivs.get(pageNumber);
+    const scroll = scrollRef.current;
+    if (!pageDiv || !scroll) return;
+    currentPage = pageNumber;
+    scroll.scrollTo({ top: Math.max(0, pageDiv.offsetTop + y - 16), behavior: "smooth" });
+  };
+
+  return {
+    externalLinkEnabled: true,
+    get pagesCount() {
+      return doc.numPages;
+    },
+    get page() {
+      return currentPage;
+    },
+    set page(value: number) {
+      if (Number.isFinite(value)) scrollToPage(value);
+    },
+    get rotation() {
+      return 0;
+    },
+    set rotation(_value: number) {},
+    get isInPresentationMode() {
+      return false;
+    },
+    async goToDestination(dest: string | unknown[]) {
+      const explicitDest = typeof dest === "string" ? await doc.getDestination(dest) : dest;
+      if (!Array.isArray(explicitDest) || explicitDest.length === 0) return;
+
+      const pageRef = explicitDest[0];
+      const pageNumber =
+        typeof pageRef === "number" ? pageRef + 1 : (await doc.getPageIndex(pageRef)) + 1;
+      const viewport = viewports.get(pageNumber);
+      const pageTop =
+        viewport && typeof explicitDest[3] === "number"
+          ? viewport.convertToViewportPoint(0, explicitDest[3])[1]
+          : 0;
+      scrollToPage(pageNumber, pageTop);
+    },
+    goToPage(value: number | string) {
+      const pageNumber = typeof value === "number" ? value : Number.parseInt(value, 10);
+      if (Number.isFinite(pageNumber)) scrollToPage(pageNumber);
+    },
+    addLinkAttributes(link: HTMLAnchorElement, url: string, newWindow = false) {
+      link.href = url;
+      if (newWindow || /^https?:/i.test(url)) {
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      }
+    },
+    getDestinationHash(dest: unknown) {
+      return typeof dest === "string" ? `#${encodeURIComponent(dest)}` : "";
+    },
+    getAnchorUrl(hash: string) {
+      return hash;
+    },
+    setHash(hash: string) {
+      const pageMatch = hash.match(/page=(\d+)/i);
+      if (pageMatch) this.goToPage(Number.parseInt(pageMatch[1], 10));
+    },
+    executeNamedAction(action: string) {
+      if (action === "NextPage") scrollToPage(Math.min(doc.numPages, currentPage + 1));
+      if (action === "PrevPage") scrollToPage(Math.max(1, currentPage - 1));
+    },
+    async executeSetOCGState(_action: object) {},
+  };
 }
