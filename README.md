@@ -69,12 +69,12 @@ Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpack
 
 Usage:
 
-- open a direct PDF URL, such as an arXiv PDF, in Chrome
+- open a supported direct PDF URL, such as an arXiv PDF, in Chrome
 - click the **Paper Browser** extension button
 - the current tab is replaced with the extension's pdf.js viewer, using the same citation parsing, hover previews, citations panel, and graph logic as the web app
 - click an annotated in-text citation to load that cited PDF in the same tab; the newly loaded PDF is parsed and annotated too
 
-The extension uses a background service worker for PDF, metadata (arXiv/Crossref/OpenAlex/Unpaywall), and fallback PDF-search requests, so it does not need the local Vite proxy to fetch cross-origin PDFs.
+The extension uses `activeTab` for the tab the user explicitly opens with the toolbar button, and its background service worker declares host access only for the scholarly APIs and supported paper hosts it fetches from: arXiv, Crossref, OpenAlex, Unpaywall, Semantic Scholar, Semble, DuckDuckGo fallback search, DOI/NBER/NeurIPS/IEEE, and `scholar.google.com`. It does not request broad `http://*/*` or `https://*/*` access. Direct PDFs from other domains may still work in the local web app through the Vite proxy, but the Chrome extension should add those domains explicitly before publishing them as supported sources.
 
 ### OpenAlex API key (optional but recommended)
 
