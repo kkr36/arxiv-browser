@@ -3,8 +3,20 @@
   "name": "Paper Browser",
   "version": "0.1.0",
   "description": "Annotate PDF citations and follow cited PDFs in the same tab.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_title": "Annotate this PDF"
+    "default_title": "Annotate this PDF",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "assets/background.js",
