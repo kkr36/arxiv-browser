@@ -4,7 +4,7 @@ This folder is a standalone static site for the Paper Browser Chrome extension.
 
 Pages:
 
-- `index.html`: project homepage with a GitHub link and placeholder Chrome Web Store link.
+- `index.html`: project homepage with GitHub and Chrome Web Store links.
 - `privacy.html`: Chrome Web Store privacy policy and Limited Use disclosure.
 
 ## GitHub Pages hosting

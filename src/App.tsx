@@ -34,6 +34,9 @@ import { downloadBlob } from "./graph/download";
 import { parseSessionExportHtml } from "./core/export/sessionImport";
 import "./app.css";
 
+const CHROME_WEB_STORE_URL =
+  "https://chromewebstore.google.com/detail/paper-browser/egncbfcaogapllgobmbagmjdanhijbpl";
+
 interface PaperView {
   kind: "paper";
   doc: PDFDocumentProxy;
@@ -622,7 +625,11 @@ export default function App({
     <div className={pdfFullscreen ? "app pdf-fullscreen-mode" : "app"}>
       {!pdfFullscreen && (
       <header className="app-header">
-        <h1>{title}</h1>
+        <h1>
+          <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">
+            {title}
+          </a>
+        </h1>
         <div className="load-bar">
           <button
             className="nav-button"

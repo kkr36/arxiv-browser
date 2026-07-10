@@ -53,6 +53,19 @@ body,
   opacity: 0.9;
 }
 
+.app-header h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-header h1 a:hover,
+.app-header h1 a:focus-visible {
+  color: #7ab8ff;
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .load-bar {
   display: flex;
   gap: 8px;
