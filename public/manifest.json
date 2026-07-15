@@ -34,6 +34,7 @@
     "https://api.semble.so/*",
     "https://duckduckgo.com/*",
     "https://doi.org/*",
+    "https://conference.nber.org/*",
     "https://www.nber.org/*",
     "https://nber.org/*",
     "https://papers.nips.cc/*",

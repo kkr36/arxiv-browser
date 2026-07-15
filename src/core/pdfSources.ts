@@ -15,6 +15,11 @@ export function resolveKnownPaperPdfUrl(raw: string): string | null {
     if (paperId) return `https://www.nber.org/system/files/working_papers/${paperId}/${paperId}.pdf`;
   }
 
+  if (host === "conference.nber.org") {
+    const paperId = path.match(/^\/conf_papers\/([^/]+?)(?:\.pdf)?\/?$/i)?.[1];
+    if (paperId) return `https://conference.nber.org/conf_papers/${paperId}.pdf`;
+  }
+
   if (host === "doi.org") {
     const nberPaperId = path.match(/^\/10\.3386\/(w\d+)\/?$/i)?.[1];
     if (nberPaperId) {
@@ -67,6 +72,7 @@ export function maybeKnownPaperUrl(url: string): boolean {
   const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
   return (
     host === "nber.org" ||
+    host === "conference.nber.org" ||
     isNeuripsHost(host) ||
     host === "ieeexplore.ieee.org" ||
     (host === "doi.org" &&

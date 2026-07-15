@@ -6,6 +6,7 @@
  * comparison, abstract reconstruction, and author-name matching.
  */
 import { normalizeTitle, titlesRoughlyEqual } from "../src/core/metadata/titleMatch";
+import { maybeKnownPaperUrl, resolveKnownPaperPdfUrl } from "../src/core/pdfSources";
 import { guessTitle } from "../src/core/semanticScholar/client";
 import { arxivIdFromDoi, extractArxivId, extractDoi } from "../src/core/metadata/identifiers";
 import {
@@ -73,6 +74,22 @@ check("old-style arXiv id", extractArxivId("arxiv.org/abs/cs/0112017") === "cs/0
 check("DOI with trailing period stripped", extractDoi("doi:10.1145/3442188.3445922.") === "10.1145/3442188.3445922");
 check("arXiv DOI decodes", arxivIdFromDoi("10.48550/arXiv.1706.03762") === "1706.03762");
 check("non-arXiv DOI ignored", arxivIdFromDoi("10.1145/3442188") === null);
+
+console.log("\nknown PDF sources:");
+check(
+  "NBER conference PDF kept fetchable",
+  resolveKnownPaperPdfUrl("https://conference.nber.org/conf_papers/f243813.pdf") ===
+    "https://conference.nber.org/conf_papers/f243813.pdf",
+);
+check(
+  "NBER conference paper id normalized",
+  resolveKnownPaperPdfUrl("https://conference.nber.org/conf_papers/f243813") ===
+    "https://conference.nber.org/conf_papers/f243813.pdf",
+);
+check(
+  "NBER conference host recognized",
+  maybeKnownPaperUrl("https://conference.nber.org/conf_papers/f243813.pdf"),
+);
 
 console.log("\ncrossref mapping + validation:");
 const crWork: CrossrefWork = {
