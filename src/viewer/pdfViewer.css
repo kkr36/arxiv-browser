@@ -15,7 +15,7 @@
   left: 16px;
   z-index: 80;
   width: max-content;
-  margin: 0 0 -172px 16px;
+  margin: 0 0 -220px 16px;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
@@ -187,29 +187,32 @@
 
 .pdf-zoom-level {
   flex: 1;
-  min-width: 56px;
+  width: 52px;
+  min-width: 52px;
   height: 40px;
-  padding: 0 8px;
+  padding: 0 4px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.055);
   color: rgba(255, 255, 255, 0.95);
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
-  cursor: pointer;
+  text-align: center;
   transition:
     background-color 170ms ease,
     border-color 170ms ease;
 }
 
-.pdf-zoom-level:hover:not(:disabled) {
+.pdf-zoom-level:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.pdf-zoom-level:disabled {
-  cursor: default;
-  opacity: 0.65;
+.pdf-zoom-level:focus-visible {
+  outline: none;
+  border-color: rgba(122, 184, 255, 0.82);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pdf-control-divider {

@@ -49,15 +49,20 @@ interface TooltipState {
 }
 
 const SCALE = 1.5;
-const ZOOM_MIN = 0.5;
+const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 1.2;
+/** Trackpad pinches arrive as ctrl+wheel events; this converts deltaY to a
+ * zoom factor. Commit is debounced so the expensive re-render runs once per
+ * gesture, not per event. */
+const PINCH_SENSITIVITY = 0.01;
+const PINCH_COMMIT_DELAY_MS = 180;
 const CANVAS_QUALITY_SCALE = 1.5;
 const MIN_CANVAS_OUTPUT_SCALE = 2;
 const MAX_CANVAS_OUTPUT_SCALE = 4;
 const MAX_CANVAS_PIXELS = 20_000_000;
 const TOOLTIP_HIDE_DELAY_MS = 180;
-const EXPANDED_CONTROLS_WIDTH = 208;
+const EXPANDED_CONTROLS_WIDTH = 226;
 const EXPANDED_CONTROLS_HEIGHT = 224;
 const CONTROLS_OFFSET = 16;
 
@@ -93,10 +98,66 @@ export function PdfViewer({
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [controlsManuallyMinimized, setControlsManuallyMinimized] = useState(false);
   const [zoom, setZoom] = useState(1);
+  /** Live zoom during a pinch gesture, shown in the % field before commit. */
+  const [pendingZoom, setPendingZoom] = useState<number | null>(null);
+  /** Text in the % field while the user is typing; null when not editing. */
+  const [zoomEditText, setZoomEditText] = useState<string | null>(null);
+  /** Escape blurs the field synchronously, before React flushes the state
+   * reset — this flag tells the blur handler not to commit. */
+  const zoomEditCancelledRef = useRef(false);
   const prevDocRef = useRef<PDFDocumentProxy | null>(null);
+  const prevZoomRef = useRef(1);
+  const zoomRef = useRef(1);
+  const pendingZoomRef = useRef<number | null>(null);
+  const pinchCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Page to align after the next re-render (set by zoom-to-fit). */
+  const snapPageRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
   function zoomBy(factor: number) {
     setZoom((z) => clampZoom(Math.round(z * factor * 100) / 100));
+  }
+
+  function commitZoomText(text: string) {
+    setZoomEditText(null);
+    const parsed = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    setZoom(clampZoom(Math.round(parsed) / 100));
+  }
+
+  /** Fits the page nearest the viewport center entirely inside the viewport
+   * (both top and bottom visible), then aligns it there after re-render. */
+  function zoomToFitPage() {
+    const scrollEl = scrollRef.current;
+    const container = containerRef.current;
+    if (!scrollEl || !container) return;
+    const pageEls = [...container.querySelectorAll<HTMLElement>(".pdf-page")];
+    if (pageEls.length === 0) return;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const viewportCenter = scrollRect.top + scrollEl.clientHeight / 2;
+    const currentPage =
+      pageEls.find((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top <= viewportCenter && r.bottom >= viewportCenter;
+      }) ??
+      pageEls.find((el) => el.getBoundingClientRect().bottom > scrollRect.top) ??
+      pageEls[0];
+    const rect = currentPage.getBoundingClientRect();
+    const ratio = Math.min(
+      (scrollEl.clientHeight - 24) / rect.height,
+      (scrollEl.clientWidth - 16) / rect.width,
+    );
+    const next = clampZoom(Math.round(zoom * ratio * 100) / 100);
+    const pageNumber = Number(currentPage.dataset.pageNumber) || 1;
+    if (next === zoom) {
+      alignPageInViewport(scrollEl, currentPage);
+      return;
+    }
+    snapPageRef.current = pageNumber;
+    setZoom(next);
   }
 
   function cancelTooltipHide() {
@@ -143,6 +204,35 @@ export function PdfViewer({
   useEffect(() => {
     if (!showCitationHighlights) closeTooltip();
   }, [showCitationHighlights]);
+
+  // Trackpad pinch (and ctrl+mouse-wheel) zooms the PDF instead of the whole
+  // page. Must be a non-passive listener so the browser-level zoom can be
+  // prevented. The commit is debounced: the % display tracks the gesture live,
+  // the actual re-render happens once the fingers pause.
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const current = pendingZoomRef.current ?? zoomRef.current;
+      const next = clampZoom(current * Math.exp(-e.deltaY * PINCH_SENSITIVITY));
+      pendingZoomRef.current = next;
+      setPendingZoom(next);
+      if (pinchCommitTimerRef.current) clearTimeout(pinchCommitTimerRef.current);
+      pinchCommitTimerRef.current = setTimeout(() => {
+        pinchCommitTimerRef.current = null;
+        pendingZoomRef.current = null;
+        setPendingZoom(null);
+        setZoom(clampZoom(Math.round(next * 100) / 100));
+      }, PINCH_COMMIT_DELAY_MS);
+    };
+    scrollEl.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      scrollEl.removeEventListener("wheel", onWheel);
+      if (pinchCommitTimerRef.current) clearTimeout(pinchCommitTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let frame = 0;
@@ -228,17 +318,37 @@ export function PdfViewer({
     if (!container) return;
     // Browser-like navigation: a newly opened document starts at the top.
     // Re-renders of the same document (zoom, highlight toggles) instead keep
-    // the reader's place by restoring the proportional scroll offset.
+    // the reader's place: the old scroll offset scales with the zoom ratio,
+    // and is restored as soon as enough pages have rendered (pages append
+    // below, so an early restore stays put). Zoom-to-fit overrides this with
+    // an exact page alignment.
     const sameDoc = prevDocRef.current === doc;
     prevDocRef.current = doc;
+    const zoomRatio = zoom / prevZoomRef.current;
+    prevZoomRef.current = zoom;
+    const snapPage = sameDoc ? snapPageRef.current : null;
+    snapPageRef.current = null;
     const scrollEl = scrollRef.current;
-    const scrollFraction =
-      sameDoc && scrollEl && scrollEl.scrollHeight > 0
-        ? scrollEl.scrollTop / scrollEl.scrollHeight
-        : 0;
+    const targetTop = sameDoc && scrollEl ? scrollEl.scrollTop * zoomRatio : 0;
+    let scrollRestored = !sameDoc || (snapPage === null && targetTop <= 0);
     container.innerHTML = "";
     setRenderError(null);
     scrollEl?.scrollTo({ top: 0 });
+
+    const tryRestoreScroll = (renderedPage: number, pageDivs: Map<number, HTMLElement>) => {
+      if (scrollRestored || !scrollEl) return;
+      if (snapPage !== null) {
+        const div = pageDivs.get(snapPage);
+        if (renderedPage < snapPage || !div) return;
+        alignPageInViewport(scrollEl, div);
+        scrollRestored = true;
+        return;
+      }
+      if (scrollEl.scrollHeight >= targetTop + scrollEl.clientHeight) {
+        scrollEl.scrollTo({ top: targetTop });
+        scrollRestored = true;
+      }
+    };
 
     (async () => {
       const renderedPages = new Set<number>();
@@ -347,10 +457,13 @@ export function PdfViewer({
           markers,
           authorMarkers,
         );
+        tryRestoreScroll(pageText.pageNumber, renderedPageDivs);
       }
       if (isStale()) return;
-      if (sameDoc && scrollFraction > 0 && scrollEl) {
-        scrollEl.scrollTo({ top: scrollFraction * scrollEl.scrollHeight });
+      if (!scrollRestored && scrollEl) {
+        scrollEl.scrollTo({
+          top: Math.min(targetTop, scrollEl.scrollHeight - scrollEl.clientHeight),
+        });
       }
       setRenderVersion((v) => v + 1);
     })().catch((err) => {
@@ -596,16 +709,39 @@ export function PdfViewer({
           <path d="M5 12h14" />
         </svg>
       </button>
-      <button
-        type="button"
+      <input
         className="pdf-zoom-level"
-        onClick={() => setZoom(1)}
-        disabled={zoom === 1}
-        title="Reset zoom to 100%"
-        aria-label={`Zoom level ${Math.round(zoom * 100)}%, click to reset`}
-      >
-        {Math.round(zoom * 100)}%
-      </button>
+        type="text"
+        inputMode="numeric"
+        value={zoomEditText ?? `${Math.round((pendingZoom ?? zoom) * 100)}%`}
+        onFocus={(e) => {
+          const input = e.currentTarget;
+          setZoomEditText(String(Math.round(zoom * 100)));
+          setTimeout(() => input.select(), 0);
+        }}
+        onChange={(e) => setZoomEditText(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            commitZoomText(e.currentTarget.value);
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            zoomEditCancelledRef.current = true;
+            setZoomEditText(null);
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={(e) => {
+          if (zoomEditCancelledRef.current) {
+            zoomEditCancelledRef.current = false;
+            return;
+          }
+          if (zoomEditText !== null) commitZoomText(e.currentTarget.value);
+        }}
+        title={`Zoom level (${ZOOM_MIN * 100}–${ZOOM_MAX * 100}%) — type a percentage and press Enter`}
+        aria-label="Zoom percentage"
+        spellCheck={false}
+        autoComplete="off"
+      />
       <button
         type="button"
         className="pdf-icon-button"
@@ -617,6 +753,21 @@ export function PdfViewer({
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 5v14" />
           <path d="M5 12h14" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="pdf-icon-button"
+        onClick={zoomToFitPage}
+        title="Fit page in window (top and bottom visible)"
+        aria-label="Fit page in window"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="7" y="3" width="10" height="18" rx="1.5" />
+          <path d="M3 8V4" />
+          <path d="M3 20v-4" />
+          <path d="M21 8V4" />
+          <path d="M21 20v-4" />
         </svg>
       </button>
     </div>
@@ -752,6 +903,16 @@ function getDevicePixelRatio(): number {
 
 function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+}
+
+/** Scrolls so `pageDiv` sits fully in view: pages shorter than the viewport
+ * get equal margins above and below; taller ones align their top. */
+function alignPageInViewport(scrollEl: HTMLElement, pageDiv: HTMLElement): void {
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const pageRect = pageDiv.getBoundingClientRect();
+  const topInContent = pageRect.top - scrollRect.top + scrollEl.scrollTop;
+  const margin = Math.max(0, (scrollEl.clientHeight - pageRect.height) / 2);
+  scrollEl.scrollTo({ top: Math.max(0, topInContent - margin) });
 }
 
 function canvasOutputScale(width: number, height: number, devicePixelRatio: number): number {
