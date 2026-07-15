@@ -79,6 +79,7 @@ function isNeuripsHost(host: string): boolean {
   return (
     host === "papers.nips.cc" ||
     host === "papers.neurips.cc" ||
+    host === "proceedings.neurips.cc" ||
     host === "datasets-benchmarks-proceedings.neurips.cc"
   );
 }

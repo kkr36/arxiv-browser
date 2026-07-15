@@ -6,6 +6,7 @@
  * comparison, abstract reconstruction, and author-name matching.
  */
 import { normalizeTitle, titlesRoughlyEqual } from "../src/core/metadata/titleMatch";
+import { guessTitle } from "../src/core/semanticScholar/client";
 import { arxivIdFromDoi, extractArxivId, extractDoi } from "../src/core/metadata/identifiers";
 import {
   crossrefMatchLooksRight,
@@ -41,6 +42,30 @@ check(
 );
 check("empty rejected", !titlesRoughlyEqual("", "anything"));
 check("normalizeTitle strips accents to letters", normalizeTitle("Café-Terrace") === "caféterrace" || normalizeTitle("Café-Terrace") === "cafeterrace");
+
+console.log("\ntitle guessing:");
+check(
+  "IEEE curly-quoted title (initials-first authors)",
+  guessTitle(
+    "A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin, “Attention is all you need,” tech. rep., Preprint, arXiv. Jun. 12, 2017.",
+  ) === "Attention is all you need",
+);
+check(
+  "straight-quoted title",
+  guessTitle(
+    'M. Hicks, J. Humphries, and J. Slater, "Chatgpt is bullshit," Ethics and Information Technology., vol. 26, pp. 1–10, 2024.',
+  ) === "Chatgpt is bullshit",
+);
+check(
+  "surname-first unquoted title still extracted",
+  guessTitle("Garg, S., Wu, Y., and Lipton, Z. Strategic classification. In Proceedings of ITCS, 2016.") ===
+    "Strategic classification",
+);
+check(
+  "short quoted fragment ignored",
+  guessTitle('J. Smith, “so-called” reasoning in models. Journal of AI, 2020.') !==
+    "so-called",
+);
 
 console.log("\nidentifier extraction:");
 check("modern arXiv id", extractArxivId("arXiv preprint arXiv:2310.05130, 2023") === "2310.05130");

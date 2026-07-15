@@ -161,6 +161,12 @@ const TRAILING_VENUE_RE = new RegExp(
 const VENUE_SHAPED_RE =
   /^(in\s+(proceedings|findings|the\s|\d|international|advances)|proceedings of|arxiv preprint|advances in neural|https?:|url\s)/i;
 
+// IEEE/Chicago-style entries wrap the title in quotes ("A. Vaswani, N.
+// Shazeer, …, “Attention is all you need,” tech. rep., 2017."). Their
+// initials-first author lists defeat AUTHOR_BLOCK_RE (which expects
+// "Surname, I."), so the quoted span is matched before any block stripping.
+const QUOTED_TITLE_RE = /[“"]([^“”"]{4,300})[”"]/u;
+
 const ANY_AUTHOR_YEAR_TITLE_RE =
   /\(\s*(?:19|20)\d{2}[a-z]?\s*\)\.?\s+(.+)|\b(?:19|20)\d{2}[a-z]?\.?\s+(.+)/;
 const LEADING_AUTHOR_YEAR_TITLE_RE = /^\s*\(?\s*(?:19|20)\d{2}[a-z]?\s*\)?\.?\s+(.+)/;
@@ -179,6 +185,20 @@ const PARTIAL_AUTHOR_LIST_RE =
  */
 export function guessTitle(rawText: string): string | null {
   const text = rawText.trim();
+
+  const quoted = text
+    .match(QUOTED_TITLE_RE)?.[1]
+    .replace(/[.,;]\s*$/, "")
+    .trim();
+  if (
+    quoted &&
+    quoted.split(/\s+/).length >= 2 &&
+    quoted.length >= 12 &&
+    !VENUE_SHAPED_RE.test(quoted)
+  ) {
+    return quoted;
+  }
+
   const block = text.match(AUTHOR_BLOCK_RE);
   const afterAuthors = block && block[0].length >= 8 ? text.slice(block[0].length) : null;
   const partialAuthorYear =
