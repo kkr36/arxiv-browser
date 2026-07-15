@@ -178,6 +178,40 @@
   border-color: rgba(255, 255, 255, 0.28);
 }
 
+.pdf-zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pdf-zoom-level {
+  flex: 1;
+  min-width: 56px;
+  height: 40px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 170ms ease,
+    border-color 170ms ease;
+}
+
+.pdf-zoom-level:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.pdf-zoom-level:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
 .pdf-control-divider {
   height: 1px;
   margin: 12px 0;

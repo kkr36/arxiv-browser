@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>API Key Setup | Paper Browser</title>
+    <meta
+      name="description"
+      content="How to add a free OpenAlex or Semantic Scholar API key to the Paper Browser Chrome extension."
+    >
+    <link rel="stylesheet" href="assets/site.css">
+    <link rel="icon" href="assets/paper-browser-icon.png">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Paper Browser home">
+        <img src="assets/paper-browser-icon.png" alt="" width="40" height="40">
+        <span>Paper Browser</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="index.html">Home</a>
+        <a aria-current="page" href="api-keys.html">API Key Setup</a>
+        <a href="usage.html">Usage Guide</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="policy-main">
+      <section class="policy-hero">
+        <p class="eyebrow">Setup guide</p>
+        <h1>Add your API key</h1>
+        <p class="lead">
+          Paper Browser needs a free API key — preferably from OpenAlex — to look up citation
+          metadata quickly and reliably. Setup takes about two minutes.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Why a key is needed</h2>
+        <p>
+          Every citation preview, author page, and PDF lookup queries scholarly metadata services.
+          Without your own key, requests share an anonymous public pool that is heavily
+          rate-limited — lookups become slow or fail outright once the shared quota runs out.
+          A free personal key gives you your own daily allowance, which is more than enough for
+          normal reading.
+        </p>
+        <p>
+          Until a key is saved, the extension shows this warning at the top of the viewer:
+        </p>
+        <figure class="guide-figure">
+          <img
+            src="assets/screenshots/api-key-warning.png"
+            alt="Paper Browser viewer showing a warning banner: No metadata API key configured — citation previews and author lookups will be slow or rate-limited."
+            width="1440" height="420"
+          >
+          <figcaption>
+            The warning disappears automatically as soon as a key is saved. Its “Open settings”
+            button jumps straight to the options page described below.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="policy-section">
+        <h2>Step 1 — Get a free key</h2>
+        <p>
+          <strong>OpenAlex (preferred).</strong> Paper Browser uses OpenAlex for citation metadata,
+          author pages, title search, and open-access PDF discovery.
+          <a href="https://openalex.org/signup" target="_blank" rel="noreferrer">Create a free OpenAlex account</a>
+          (it takes under a minute), then copy your key from
+          <a href="https://openalex.org/settings/api-key" target="_blank" rel="noreferrer">Settings → API key</a>.
+          The free key includes a daily usage allowance that comfortably covers everyday use — see
+          the <a href="https://developers.openalex.org/guides/authentication" target="_blank" rel="noreferrer">OpenAlex authentication guide</a>.
+        </p>
+        <p>
+          <strong>Semantic Scholar (optional).</strong> Semantic Scholar is used only as a fallback
+          resolver when the primary services can’t identify a reference. If you want that fallback
+          to have its own quota too, request a free key via the
+          <a href="https://www.semanticscholar.org/product/api" target="_blank" rel="noreferrer">Semantic Scholar API page</a>.
+          An OpenAlex key alone is enough for most people.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Step 2 — Open the extension’s options page</h2>
+        <p>
+          In Chrome, open the <strong>⋮ menu → Extensions → Manage Extensions</strong> (or type
+          <code>chrome://extensions</code> in the address bar). Find the Paper Browser card and
+          click <strong>Details</strong>.
+        </p>
+        <figure class="guide-figure">
+          <img
+            src="assets/screenshots/chrome-extensions.png"
+            alt="Chrome's Manage Extensions page with the Paper Browser extension card and its Details button."
+            width="1280" height="560"
+          >
+          <figcaption>The Manage Extensions page — click <strong>Details</strong> on the Paper Browser card.</figcaption>
+        </figure>
+        <p>
+          On the details page, scroll down and click <strong>Extension options</strong>.
+        </p>
+        <figure class="guide-figure">
+          <img
+            src="assets/screenshots/extension-details-options.png"
+            alt="Paper Browser's extension details page scrolled to the Extension options row."
+            width="1280" height="615"
+          >
+          <figcaption>The <strong>Extension options</strong> row opens Paper Browser’s settings.</figcaption>
+        </figure>
+        <p>
+          Shortcut: you can also right-click the Paper Browser icon in the toolbar (or in the
+          puzzle-piece extensions menu) and choose <strong>Options</strong>.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Step 3 — Paste your key and save</h2>
+        <p>
+          Paste the key into the <strong>OpenAlex API key</strong> field (and/or the Semantic
+          Scholar field) and click <strong>Save</strong>. The status line under the field confirms
+          the key is stored.
+        </p>
+        <figure class="guide-figure">
+          <img
+            src="assets/screenshots/options-page.png"
+            alt="Paper Browser settings page with fields for an OpenAlex API key and a Semantic Scholar API key."
+            width="1280" height="620"
+          >
+          <figcaption>Paper Browser’s settings page: one field per service, with Save/Clear and a Show toggle.</figcaption>
+        </figure>
+        <div class="key-note">
+          <p>
+            Keys are stored locally in your browser and are only attached to requests the extension
+            makes to the corresponding service (OpenAlex or Semantic Scholar). They are never sent
+            to a Paper Browser server — there isn’t one. See the
+            <a href="privacy.html">Privacy Policy</a>.
+          </p>
+        </div>
+        <p>
+          That’s it. Return to the viewer tab — the warning banner is gone, and citation previews
+          now resolve with your own quota. Next:
+          <a href="usage.html">learn the browsing features</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Paper Browser</span>
+      <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">kkr36/arxiv-browser</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </footer>
+  </body>
+</html>

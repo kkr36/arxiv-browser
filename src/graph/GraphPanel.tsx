@@ -3,6 +3,7 @@ import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph
 import { rootIds } from "../core/graph/explorationGraph";
 import { layoutGraph, NODE_H, NODE_W, type GraphLayout, type NodePos } from "../core/graph/layoutGraph";
 import { buildSessionExport } from "../core/export/sessionExport";
+import { buildGraphBibtex } from "../core/export/bibtex";
 import { createZip } from "../core/export/zip";
 import { buildObsidianVault } from "../core/export/obsidian/obsidianVault";
 import { buildGraphExportHtml } from "./exportGraphHtml";
@@ -274,6 +275,15 @@ export function GraphPanel({
     );
   }
 
+  function handleExportBibtex() {
+    setExportMenuOpen(false);
+    downloadBlob(
+      new Blob([buildGraphBibtex(graph)], { type: "application/x-bibtex" }),
+      `paper-exploration-${new Date().toISOString().slice(0, 10)}.bib`,
+      { directory: SESSION_DOWNLOAD_DIR },
+    );
+  }
+
   function handlePublishSemble() {
     setExportMenuOpen(false);
     setSembleOpen(true);
@@ -311,6 +321,9 @@ export function GraphPanel({
               </button>
               <button data-export="obsidian" onClick={handleExportObsidian}>
                 Obsidian vault (.zip)
+              </button>
+              <button data-export="bibtex" onClick={handleExportBibtex}>
+                BibTeX (.bib)
               </button>
               <button data-export="semble" onClick={handlePublishSemble}>
                 Publish to Semble…

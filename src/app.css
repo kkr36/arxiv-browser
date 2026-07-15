@@ -122,6 +122,45 @@ body,
   color: #7ab8ff;
 }
 
+.api-key-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: rgba(229, 168, 57, 0.14);
+  border: 1px solid rgba(255, 205, 122, 0.3);
+  font-size: 12px;
+}
+
+.api-key-warning span {
+  flex: 1;
+  min-width: 0;
+  color: #ffe1ad;
+}
+
+.api-key-warning button {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 205, 122, 0.4);
+  background: #2a2a33;
+  color: #eee;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.api-key-warning button:hover {
+  background: #34343f;
+}
+
+.api-key-warning a {
+  flex: none;
+  color: #ffcd7a;
+  font-weight: 600;
+}
+
 .pending-root-banner {
   display: flex;
   align-items: center;

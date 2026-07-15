@@ -506,6 +506,69 @@ h2 {
   padding-top: 28px;
 }
 
+.guide-figure {
+  margin: 26px 0 10px;
+}
+
+.guide-figure img {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(26, 38, 54, 0.12);
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.guide-figure figcaption {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+
+.guide-figure.narrow img {
+  max-width: 560px;
+}
+
+.guide-figure-row {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guide-callout {
+  background: var(--accent-soft);
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: 8px;
+  margin: 20px 0;
+  padding: 16px 18px;
+}
+
+.guide-callout p {
+  color: var(--ink);
+  margin: 0;
+}
+
+.key-note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warm);
+  border-radius: 8px;
+  margin: 20px 0;
+  padding: 16px 18px;
+}
+
+.key-note p {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .guide-figure-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 860px) {
   .site-header {
     align-items: flex-start;

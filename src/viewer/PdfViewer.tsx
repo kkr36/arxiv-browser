@@ -49,13 +49,16 @@ interface TooltipState {
 }
 
 const SCALE = 1.5;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 1.2;
 const CANVAS_QUALITY_SCALE = 1.5;
 const MIN_CANVAS_OUTPUT_SCALE = 2;
 const MAX_CANVAS_OUTPUT_SCALE = 4;
 const MAX_CANVAS_PIXELS = 20_000_000;
 const TOOLTIP_HIDE_DELAY_MS = 180;
 const EXPANDED_CONTROLS_WIDTH = 208;
-const EXPANDED_CONTROLS_HEIGHT = 172;
+const EXPANDED_CONTROLS_HEIGHT = 224;
 const CONTROLS_OFFSET = 16;
 
 export function PdfViewer({
@@ -89,6 +92,12 @@ export function PdfViewer({
   const [controlsCompact, setControlsCompact] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [controlsManuallyMinimized, setControlsManuallyMinimized] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const prevDocRef = useRef<PDFDocumentProxy | null>(null);
+
+  function zoomBy(factor: number) {
+    setZoom((z) => clampZoom(Math.round(z * factor * 100) / 100));
+  }
 
   function cancelTooltipHide() {
     if (!tooltipHideTimerRef.current) return;
@@ -217,11 +226,19 @@ export function PdfViewer({
     const isStale = () => cancelled || renderRun !== renderRunRef.current;
     const container = containerRef.current;
     if (!container) return;
+    // Browser-like navigation: a newly opened document starts at the top.
+    // Re-renders of the same document (zoom, highlight toggles) instead keep
+    // the reader's place by restoring the proportional scroll offset.
+    const sameDoc = prevDocRef.current === doc;
+    prevDocRef.current = doc;
+    const scrollEl = scrollRef.current;
+    const scrollFraction =
+      sameDoc && scrollEl && scrollEl.scrollHeight > 0
+        ? scrollEl.scrollTop / scrollEl.scrollHeight
+        : 0;
     container.innerHTML = "";
     setRenderError(null);
-    // Browser-like navigation: a newly opened document starts at the top
-    // rather than inheriting the previous paper's scroll offset.
-    scrollRef.current?.scrollTo({ top: 0 });
+    scrollEl?.scrollTo({ top: 0 });
 
     (async () => {
       const renderedPages = new Set<number>();
@@ -233,7 +250,7 @@ export function PdfViewer({
         renderedPages.add(pageText.pageNumber);
         const page = await doc.getPage(pageText.pageNumber);
         if (isStale()) return;
-        const viewport = page.getViewport({ scale: SCALE });
+        const viewport = page.getViewport({ scale: SCALE * zoom });
         // Render at device resolution but lay out at CSS pixels, so text
         // isn't blurry on high-DPI displays. The extra capped oversampling
         // makes dense, thin-font papers closer to native PDF viewer quality.
@@ -331,7 +348,11 @@ export function PdfViewer({
           authorMarkers,
         );
       }
-      if (!isStale()) setRenderVersion((v) => v + 1);
+      if (isStale()) return;
+      if (sameDoc && scrollFraction > 0 && scrollEl) {
+        scrollEl.scrollTo({ top: scrollFraction * scrollEl.scrollHeight });
+      }
+      setRenderVersion((v) => v + 1);
     })().catch((err) => {
       if (!isStale()) setRenderError(`Failed to render PDF: ${(err as Error).message}`);
     });
@@ -347,6 +368,7 @@ export function PdfViewer({
     showCitationHighlights,
     showAuthorHighlights,
     renderPixelRatio,
+    zoom,
   ]);
 
   useEffect(() => {
@@ -560,6 +582,46 @@ export function PdfViewer({
     </div>
   );
 
+  const zoomControls = (
+    <div className="pdf-zoom-row" aria-label="Zoom controls">
+      <button
+        type="button"
+        className="pdf-icon-button"
+        onClick={() => zoomBy(1 / ZOOM_STEP)}
+        disabled={zoom <= ZOOM_MIN}
+        title="Zoom out"
+        aria-label="Zoom out"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h14" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="pdf-zoom-level"
+        onClick={() => setZoom(1)}
+        disabled={zoom === 1}
+        title="Reset zoom to 100%"
+        aria-label={`Zoom level ${Math.round(zoom * 100)}%, click to reset`}
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        type="button"
+        className="pdf-icon-button"
+        onClick={() => zoomBy(ZOOM_STEP)}
+        disabled={zoom >= ZOOM_MAX}
+        title="Zoom in"
+        aria-label="Zoom in"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+      </button>
+    </div>
+  );
+
   const displayOptions = (
     <>
       <div className="pdf-control-divider" aria-hidden="true" />
@@ -636,6 +698,7 @@ export function PdfViewer({
             {controlsMenuOpen && (
               <div className="pdf-compact-menu">
                 {actionButtons}
+                {zoomControls}
                 {displayOptions}
               </div>
             )}
@@ -657,6 +720,7 @@ export function PdfViewer({
               </svg>
             </button>
             {actionButtons}
+            {zoomControls}
             {displayOptions}
           </>
         )}
@@ -684,6 +748,10 @@ export function PdfViewer({
 
 function getDevicePixelRatio(): number {
   return window.devicePixelRatio || 1;
+}
+
+function clampZoom(zoom: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
 
 function canvasOutputScale(width: number, height: number, devicePixelRatio: number): number {

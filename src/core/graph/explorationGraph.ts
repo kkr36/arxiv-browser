@@ -11,6 +11,7 @@ export interface GraphNode {
   year?: number;
   venue?: string;
   abstract?: string;
+  doi?: string;
   /** "external" papers had no fetchable PDF — they open their web page in a new tab. */
   kind: "pdf" | "external" | "author";
   source?: "google-scholar" | "semantic-scholar" | "openalex";
@@ -56,6 +57,7 @@ export function nodeFromPaper(paper: ResolvedPaper): GraphNode {
     year: paper.year,
     venue: paper.venue,
     abstract: paper.abstract,
+    doi: paper.doi,
     kind: paper.pdfUrl ? "pdf" : "external",
   };
 }
@@ -175,6 +177,7 @@ function mergeNodes(existing: GraphNode, incoming: GraphNode): GraphNode {
     year: existing.year ?? incoming.year,
     venue: existing.venue ?? incoming.venue,
     abstract: existing.abstract ?? incoming.abstract,
+    doi: existing.doi ?? incoming.doi,
     source: existing.source ?? incoming.source,
     googleScholarUrl: existing.googleScholarUrl ?? incoming.googleScholarUrl,
     homepage: existing.homepage ?? incoming.homepage,

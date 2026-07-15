@@ -5,6 +5,7 @@ import App from "../App";
 const params = new URLSearchParams(window.location.search);
 const initialUrl = params.get("url") ?? "";
 const PENDING_ROOT_KEY = "pendingRootRequest";
+const API_KEY_STORAGE_KEYS = ["openAlexApiKey", "semanticScholarApiKey"] as const;
 
 interface PendingRootRequest {
   id: number;
@@ -19,18 +20,31 @@ function syncViewerUrl(url: string) {
 
 function ExtensionViewerApp() {
   const [pendingRootRequest, setPendingRootRequest] = useState<PendingRootRequest | null>(null);
+  // null while the initial storage read is in flight, so the warning never
+  // flashes for users who do have a key saved.
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
   useEffect(() => {
     void chrome.storage.local.get(PENDING_ROOT_KEY).then((items) => {
       setPendingRootRequest(asPendingRootRequest(items[PENDING_ROOT_KEY]));
+    });
+    void chrome.storage.local.get([...API_KEY_STORAGE_KEYS]).then((items) => {
+      setHasApiKey(API_KEY_STORAGE_KEYS.some((key) => isNonEmptyString(items[key])));
     });
 
     const onChanged = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: "local" | "sync" | "managed" | "session",
     ) => {
-      if (areaName !== "local" || !changes[PENDING_ROOT_KEY]) return;
-      setPendingRootRequest(asPendingRootRequest(changes[PENDING_ROOT_KEY].newValue));
+      if (areaName !== "local") return;
+      if (changes[PENDING_ROOT_KEY]) {
+        setPendingRootRequest(asPendingRootRequest(changes[PENDING_ROOT_KEY].newValue));
+      }
+      if (API_KEY_STORAGE_KEYS.some((key) => changes[key])) {
+        void chrome.storage.local.get([...API_KEY_STORAGE_KEYS]).then((items) => {
+          setHasApiKey(API_KEY_STORAGE_KEYS.some((key) => isNonEmptyString(items[key])));
+        });
+      }
     };
     chrome.storage.onChanged.addListener(onChanged);
   }, []);
@@ -60,8 +74,14 @@ function ExtensionViewerApp() {
       pendingRootRequest={pendingRootRequest}
       onPendingRootHandled={handlePendingRootHandled}
       onPendingRootNewSession={handlePendingRootNewSession}
+      showApiKeyWarning={hasApiKey === false}
+      onOpenApiKeySettings={() => void chrome.runtime.openOptionsPage()}
     />
   );
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function asPendingRootRequest(value: unknown): PendingRootRequest | null {

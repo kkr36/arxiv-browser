@@ -12,6 +12,7 @@ declare namespace chrome {
     const lastError: { message?: string } | undefined;
 
     function getURL(path: string): string;
+    function openOptionsPage(): Promise<void>;
     function sendMessage<TMessage, TResponse>(
       message: TMessage,
       callback: (response: TResponse) => void,

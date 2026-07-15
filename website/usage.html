@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Usage Guide | Paper Browser</title>
+    <meta
+      name="description"
+      content="How to use the Paper Browser Chrome extension: clickable inline citations, the exploration graph, exports, and reading controls."
+    >
+    <link rel="stylesheet" href="assets/site.css">
+    <link rel="icon" href="assets/paper-browser-icon.png">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Paper Browser home">
+        <img src="assets/paper-browser-icon.png" alt="" width="40" height="40">
+        <span>Paper Browser</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="index.html">Home</a>
+        <a href="api-keys.html">API Key Setup</a>
+        <a aria-current="page" href="usage.html">Usage Guide</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="policy-main">
+      <section class="policy-hero">
+        <p class="eyebrow">Usage guide</p>
+        <h1>Using Paper Browser</h1>
+        <p class="lead">
+          Read a paper, click its citations, and keep the whole trail — then export it as a graph,
+          an Obsidian vault, or a BibTeX file.
+        </p>
+        <div class="guide-callout">
+          <p>
+            First time here? Add a free OpenAlex API key before you start —
+            <a href="api-keys.html">follow the two-minute setup guide</a>. Citation lookups are
+            slow and rate-limited without one.
+          </p>
+        </div>
+      </section>
+
+      <section class="policy-section">
+        <h2>Open a paper</h2>
+        <p>
+          Click the Paper Browser toolbar icon while viewing an arXiv page or any research PDF, and
+          the paper opens in the annotated viewer. You can also use the viewer’s address bar
+          directly: paste an arXiv id (like <code>1706.03762</code>), a PDF or paper-page URL, or a
+          Google Scholar / Semantic Scholar author URL, then press <strong>Load</strong>. Local
+          files work too, via <strong>Upload PDF</strong>.
+        </p>
+        <figure class="guide-figure">
+          <img
+            src="assets/screenshots/viewer-overview.png"
+            alt="The Paper Browser viewer showing an annotated arXiv PDF on the left and the exploration graph panel on the right."
+            width="1440" height="900"
+          >
+          <figcaption>
+            The viewer: the PDF with highlighted citations and author names on the left, the
+            exploration graph on the right, and the status line reporting how many references and
+            in-text citations were linked.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="policy-section">
+        <h2>Click inline citations</h2>
+        <p>
+          In-text citation markers like <code>[13]</code> or <code>(Smith, 2020)</code> are
+          highlighted. <strong>Hover</strong> one to preview the cited work — title, authors, year,
+          venue, and abstract. <strong>Click</strong> it to resolve the cited paper and open its
+          PDF in the same tab, so you never lose your place; use the back/forward arrows
+          (or Alt+←/→) to move along the trail. If no open-access PDF is known, the preview offers
+          <strong>Search web for PDF</strong>, and papers with no PDF at all open their publisher
+          page in a new tab instead.
+        </p>
+        <figure class="guide-figure narrow">
+          <img
+            src="assets/screenshots/citation-tooltip.png"
+            alt="Hover preview over the citation marker [13] showing the Long Short-Term Memory paper's title, authors, year, venue, and abstract."
+            width="440" height="390"
+          >
+          <figcaption>Hovering <code>[13]</code> previews the cited paper; clicking opens it in place.</figcaption>
+        </figure>
+        <p>
+          Highlighted author names on the title page work the same way — click one to open that
+          author’s profile and list of works.
+        </p>
+      </section>
+
+      <section class="policy-section">
+        <h2>Citation and author lists</h2>
+        <p>
+          The <strong>Citations</strong> and <strong>Authors</strong> buttons in the toolbar open
+          dropdown panels for the current paper. The citations panel lists every parsed reference —
+          <strong>Find</strong> highlights where it’s cited in the text, and <strong>PDF</strong>
+          opens the cited paper. The authors panel lists the paper’s authors with how often each is
+          mentioned; <strong>Open</strong> shows their profile and works.
+        </p>
+        <div class="guide-figure-row">
+          <figure class="guide-figure">
+            <img
+              src="assets/screenshots/citations-panel.png"
+              alt="The Citations panel listing parsed references with Find and PDF buttons for each entry."
+              width="340" height="700"
+            >
+            <figcaption>The citations panel: every reference, with in-text usage counts.</figcaption>
+          </figure>
+          <figure class="guide-figure">
+            <img
+              src="assets/screenshots/authors-panel.png"
+              alt="The Authors panel listing the paper's authors with Open buttons."
+              width="340" height="460"
+            >
+            <figcaption>The authors panel: click <strong>Open</strong> for an author’s profile.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="policy-section">
+        <h2>The exploration graph</h2>
+        <p>
+          The graph panel records your session as you read. Papers you open directly become roots;
+          papers opened by clicking a citation become children of the paper you were reading, with
+          an arrow meaning “cited by the paper above”. Author pages join the graph the same way.
+        </p>
+        <ul>
+          <li><strong>Revisit:</strong> click any node to bring that paper back up; hover for its details.</li>
+          <li><strong>Rearrange:</strong> drag nodes anywhere, or use the sort menu (by year or citation count); <strong>Reset</strong> restores the automatic layout.</li>
+          <li><strong>Edit:</strong> remove a node with its ×, click an edge to delete it, or use <strong>Manually connect nodes</strong> to add a citation edge yourself. <strong>Undo/Redo</strong> cover every edit.</li>
+        </ul>
+        <figure class="guide-figure narrow">
+          <img
+            src="assets/screenshots/graph-panel.png"
+            alt="The exploration graph panel with two paper nodes connected by a citation arrow, plus Export, Undo, Redo and sorting controls."
+            width="400" height="330"
+          >
+          <figcaption>Each card shows title, year, and first author; the green bar marks a root.</figcaption>
+        </figure>
+      </section>
+
+      <section class="policy-section">
+        <h2>Export your session</h2>
+        <p>
+          The graph’s <strong>Export</strong> menu saves the whole exploration:
+        </p>
+        <ul>
+          <li><strong>HTML page</strong> — a self-contained interactive page of the graph. You can re-import it later with <strong>Resume session</strong> in the toolbar.</li>
+          <li><strong>Obsidian vault (.zip)</strong> — one note per paper plus a canvas of the graph, ready to drop into Obsidian.</li>
+          <li><strong>BibTeX (.bib)</strong> — a compiled bibliography of every paper in the graph, with whatever metadata the session collected (authors, year, venue, DOI, arXiv id, URL).</li>
+          <li><strong>Publish to Semble</strong> — share the exploration as a Semble collection.</li>
+        </ul>
+        <figure class="guide-figure narrow">
+          <img
+            src="assets/screenshots/graph-export-menu.png"
+            alt="The graph panel's Export menu with options: HTML page, Obsidian vault (.zip), BibTeX (.bib), and Publish to Semble."
+            width="400" height="280"
+          >
+          <figcaption>Exports live under the graph panel’s <strong>Export</strong> menu.</figcaption>
+        </figure>
+      </section>
+
+      <section class="policy-section">
+        <h2>Reading controls</h2>
+        <p>
+          The floating controls in the top-left corner of the PDF handle the reading view:
+          fullscreen, download, <strong>zoom in / out</strong> (the percentage button resets to
+          100%), and toggles for the citation and author highlights if you’d rather see the PDF’s
+          original links. When space is tight the controls collapse into a single button that
+          expands on click.
+        </p>
+        <figure class="guide-figure narrow">
+          <img
+            src="assets/screenshots/pdf-zoom-controls.png"
+            alt="Floating PDF controls: fullscreen and download icons, zoom out, 100% reset, zoom in, and highlight toggles."
+            width="194" height="219"
+          >
+          <figcaption>PDF view controls: fullscreen, download, zoom, and highlight toggles.</figcaption>
+        </figure>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Paper Browser</span>
+      <a href="https://github.com/kkr36/arxiv-browser" target="_blank" rel="noreferrer">kkr36/arxiv-browser</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </footer>
+  </body>
+</html>

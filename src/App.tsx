@@ -36,6 +36,7 @@ import "./app.css";
 
 const CHROME_WEB_STORE_URL =
   "https://chromewebstore.google.com/detail/paper-browser/egncbfcaogapllgobmbagmjdanhijbpl";
+const API_KEY_GUIDE_URL = "https://paperbrowsercontact-design.github.io/api-keys.html";
 
 interface PaperView {
   kind: "paper";
@@ -99,6 +100,9 @@ interface AppProps {
   pendingRootRequest?: { id: number; input: string } | null;
   onPendingRootHandled?: (id: number) => void;
   onPendingRootNewSession?: (id: number, input: string) => void;
+  /** Extension only: no metadata API key is configured, so show the setup nudge. */
+  showApiKeyWarning?: boolean;
+  onOpenApiKeySettings?: () => void;
 }
 
 export default function App({
@@ -109,6 +113,8 @@ export default function App({
   pendingRootRequest = null,
   onPendingRootHandled,
   onPendingRootNewSession,
+  showApiKeyWarning = false,
+  onOpenApiKeySettings,
 }: AppProps = {}) {
   const [input, setInput] = useState(initialInput);
   const [view, setView] = useState<MainView | null>(null);
@@ -625,6 +631,23 @@ export default function App({
     <div className={pdfFullscreen ? "app pdf-fullscreen-mode" : "app"}>
       {!pdfFullscreen && (
       <header className="app-header">
+        {showApiKeyWarning && (
+          <div className="api-key-warning" role="alert">
+            <span>
+              No metadata API key configured — citation previews and author lookups will be slow
+              or rate-limited. Add a free OpenAlex (preferred) or Semantic Scholar key
+              {onOpenApiKeySettings ? " in the extension settings." : "."}
+            </span>
+            {onOpenApiKeySettings && (
+              <button type="button" onClick={onOpenApiKeySettings}>
+                Open settings
+              </button>
+            )}
+            <a href={API_KEY_GUIDE_URL} target="_blank" rel="noopener noreferrer">
+              Setup guide
+            </a>
+          </div>
+        )}
         <h1>
           <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">
             {title}

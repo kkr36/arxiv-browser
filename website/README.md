@@ -5,7 +5,11 @@ This folder is a standalone static site for the Paper Browser Chrome extension.
 Pages:
 
 - `index.html`: project homepage with GitHub and Chrome Web Store links.
+- `api-keys.html`: setup guide for adding an OpenAlex / Semantic Scholar API key to the extension (the extension's missing-key warning banner links here).
+- `usage.html`: usage guide — inline citations, exploration graph, exports, reading controls.
 - `privacy.html`: Chrome Web Store privacy policy and Limited Use disclosure.
+
+Screenshots live in `assets/screenshots/` (captured against the real app and a Chromium instance with the built extension loaded).
 
 ## GitHub Pages hosting
 
