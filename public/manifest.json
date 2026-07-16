@@ -24,26 +24,5 @@
   },
   "options_page": "extension-options.html",
   "permissions": ["activeTab", "tabs", "downloads", "storage"],
-  "host_permissions": [
-    "https://arxiv.org/*",
-    "https://export.arxiv.org/*",
-    "https://api.crossref.org/*",
-    "https://api.openalex.org/*",
-    "https://api.unpaywall.org/*",
-    "https://api.semanticscholar.org/*",
-    "https://api.semble.so/*",
-    "https://duckduckgo.com/*",
-    "https://doi.org/*",
-    "https://conference.nber.org/*",
-    "https://www.nber.org/*",
-    "https://nber.org/*",
-    "https://openreview.net/*",
-    "https://papers.nips.cc/*",
-    "https://papers.neurips.cc/*",
-    "https://proceedings.neurips.cc/*",
-    "https://datasets-benchmarks-proceedings.neurips.cc/*",
-    "https://aclanthology.org/*",
-    "https://ieeexplore.ieee.org/*",
-    "https://scholar.google.com/*"
-  ]
+  "host_permissions": ["http://*/*", "https://*/*"]
 }
