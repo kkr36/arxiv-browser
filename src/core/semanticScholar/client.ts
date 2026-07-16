@@ -205,10 +205,19 @@ export function guessTitle(rawText: string): string | null {
     afterAuthors !== null && PARTIAL_AUTHOR_LIST_RE.test(afterAuthors)
       ? afterAuthors.match(PAREN_YEAR_TITLE_RE)
       : null;
+  const wholeTextAuthorYear = afterAuthors === null ? text.match(ANY_AUTHOR_YEAR_TITLE_RE) : null;
+  const firstSentenceBoundary = text.match(SENTENCE_SPLIT_RE);
+  const authorYearBeforeTitle =
+    wholeTextAuthorYear &&
+    (!firstSentenceBoundary ||
+      (wholeTextAuthorYear.index ?? Infinity) <=
+        (firstSentenceBoundary.index ?? 0) + firstSentenceBoundary[0].length);
   const afterYear =
     afterAuthors !== null
       ? (afterAuthors.match(LEADING_AUTHOR_YEAR_TITLE_RE) ?? partialAuthorYear)
-      : text.match(ANY_AUTHOR_YEAR_TITLE_RE);
+      : authorYearBeforeTitle
+        ? wholeTextAuthorYear
+        : null;
 
   let candidate: string;
   if (afterYear) {

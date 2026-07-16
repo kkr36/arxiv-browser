@@ -15,6 +15,7 @@ import { matchOaWorkByTitle, oaWorkToResolvedPaper } from "./metadata/openalex";
 import { findUnpaywallPdfUrl } from "./metadata/unpaywall";
 import { fetchArxivById, searchArxivByTitle } from "./arxiv/searchArxiv";
 import type { BibEntry, CitationMarker, PageText, ResolvedPaper } from "./types";
+import { findPublicPdf } from "./webPdfSearch";
 
 export interface CitationData {
   pages: PageText[];
@@ -66,9 +67,12 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 
   const entry = entries[entryIndex];
   const promise = (async () => {
+    // v6: bumped when no-PDF metadata matches started continuing through
+    // arXiv/public-PDF discovery instead of stopping at page-only records.
+    //
     // v5: bumped when the resolution pipeline moved from Semantic Scholar
     // to arXiv/Crossref/OpenAlex, so stale S2-era results get re-resolved.
-    const cacheKey = `arxiv-browser:resolve-v5:${entry.rawText.slice(0, 120)}`;
+    const cacheKey = `arxiv-browser:resolve-v6:${entry.rawText.slice(0, 120)}`;
     const stored = safeLocalStorageGet(cacheKey);
     if (stored) {
       try {
@@ -126,7 +130,7 @@ async function resolveRawReference(rawText: string): Promise<ResolvedPaper | nul
     ]);
     if (crossref) {
       const resolved = crossrefWorkToResolvedPaper(crossref);
-      if (resolved) return withOpenAccessPdf(resolved, oaPdfUrl);
+      if (resolved) return withBestDiscoveredPdf(withOpenAccessPdf(resolved, oaPdfUrl), rawText, title);
     }
   }
 
@@ -138,22 +142,52 @@ async function resolveRawReference(rawText: string): Promise<ResolvedPaper | nul
   const openAlexPaper = openAlexWork ? oaWorkToResolvedPaper(openAlexWork) : null;
   const merged = mergeResolvedCandidates(crossrefPaper, openAlexPaper);
   if (merged) {
-    if (merged.pdfUrl || !merged.doi) return merged;
-    const oaPdfUrl = await findUnpaywallPdfUrl(merged.doi).catch(() => null);
-    return withOpenAccessPdf(merged, oaPdfUrl);
+    if (merged.pdfUrl) return merged;
+    const oaPdfUrl = merged.doi ? await findUnpaywallPdfUrl(merged.doi).catch(() => null) : null;
+    return withBestDiscoveredPdf(withOpenAccessPdf(merged, oaPdfUrl), rawText, title);
   }
 
-  if (title) {
-    const arxiv = await searchArxivByTitle(title);
-    if (arxiv) return arxiv;
-  }
+  const foundByTitle = await withBestDiscoveredPdf(null, rawText, title);
+  if (foundByTitle) return foundByTitle;
 
-  return resolveViaSemanticScholar(rawText);
+  return withBestDiscoveredPdf(await resolveViaSemanticScholar(rawText), rawText, title);
 }
 
 function withOpenAccessPdf(paper: ResolvedPaper, oaPdfUrl: string | null): ResolvedPaper {
   if (paper.pdfUrl || !oaPdfUrl) return paper;
   return { ...paper, pdfUrl: oaPdfUrl, source: "direct-pdf" };
+}
+
+async function withBestDiscoveredPdf(
+  base: ResolvedPaper | null,
+  rawText: string,
+  guessedTitle: string | null,
+): Promise<ResolvedPaper | null> {
+  if (base?.pdfUrl) return base;
+
+  const title = guessedTitle ?? base?.title ?? guessTitle(rawText);
+  if (title) {
+    const arxiv = await searchArxivByTitle(title).catch(() => null);
+    if (arxiv) return mergeResolvedCandidates(base, arxiv);
+  }
+
+  const publicPdf = await findPublicPdf({ title: title ?? undefined, rawText }).catch(() => null);
+  if (!publicPdf) return base;
+
+  const fallbackTitle = title ?? rawText.slice(0, 120);
+  return {
+    title: base?.title ?? publicPdf.title ?? fallbackTitle,
+    abstract: base?.abstract,
+    authors: base?.authors ?? [],
+    authorProfiles: base?.authorProfiles,
+    year: base?.year,
+    venue: base?.venue,
+    doi: base?.doi,
+    pageUrl: base?.pageUrl,
+    semanticScholarUrl: base?.semanticScholarUrl,
+    pdfUrl: publicPdf.pdfUrl,
+    source: publicPdf.pdfUrl.includes("arxiv.org/pdf/") ? "arxiv" : "direct-pdf",
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import { fetchJson, type JsonResponse } from "../net/fetchJson";
 import { createThrottledQueue } from "../net/throttle";
+import { resolveKnownPaperPdfUrl } from "../pdfSources";
 import { isLikelyProxyHostilePdfUrl } from "../semanticScholar/resolvePaper";
 import type { AuthorWork, ResolvedAuthorPage, ResolvedPaper } from "../types";
 import { arxivIdFromDoi } from "./identifiers";
@@ -113,9 +114,19 @@ function allLocations(work: OaWork): OaLocation[] {
 function bestPdfUrl(work: OaWork): string | undefined {
   const arxivId = arxivIdFromOaWork(work);
   if (arxivId) return `https://arxiv.org/pdf/${arxivId}.pdf`;
+  const locations = allLocations(work);
+  const knownSourceCandidates = [
+    work.open_access?.oa_url,
+    ...locations.flatMap((l) => [l.pdf_url, l.landing_page_url]),
+  ]
+    .map((u) => (u ? resolveKnownPaperPdfUrl(u) : null))
+    .filter((u): u is string => !!u);
+  const knownSourcePdf = knownSourceCandidates.find((u) => !isLikelyProxyHostilePdfUrl(u));
+  if (knownSourcePdf) return knownSourcePdf;
+
   const candidates = [
     work.open_access?.oa_url,
-    ...allLocations(work).map((l) => l.pdf_url),
+    ...locations.map((l) => l.pdf_url),
   ].filter((u): u is string => !!u);
   return candidates.find((u) => !isLikelyProxyHostilePdfUrl(u));
 }

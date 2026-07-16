@@ -67,6 +67,24 @@ check(
   guessTitle('J. Smith, “so-called” reasoning in models. Journal of AI, 2020.') !==
     "so-called",
 );
+check(
+  "FAccT given-name reference title",
+  guessTitle(
+    "Maarten Buyl, Hadi Khalaf, Claudio Mayrink Verdun, Lucas Monteiro Paes, Caio Cesar Vieira Machado, and Flavio du Pin Calmon. AI Alignment at Your Discretion. In Proceedings of the 2025 ACM Conference on Fairness, Accountability, and Transparency, 2025. 2",
+  ) === "AI Alignment at Your Discretion",
+);
+check(
+  "ICLR reference title",
+  guessTitle(
+    "Gihoon Kim and Euntai Kim. Swap-Guided Preference Learning for Personalized Reinforcement Learning from Human Feedback. In The Fourteenth International Conference on Learning Representations, 2026. 17",
+  ) === "Swap-Guided Preference Learning for Personalized Reinforcement Learning from Human Feedback",
+);
+check(
+  "ACL reference title",
+  guessTitle(
+    "Thom Lake, Eunsol Choi, and Greg Durrett. From Distributional to Overton Pluralism: Investigating Large Language Model Alignment. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers), 2025. 16",
+  ) === "From Distributional to Overton Pluralism: Investigating Large Language Model Alignment",
+);
 
 console.log("\nidentifier extraction:");
 check("modern arXiv id", extractArxivId("arXiv preprint arXiv:2310.05130, 2023") === "2310.05130");
@@ -90,6 +108,23 @@ check(
   "NBER conference host recognized",
   maybeKnownPaperUrl("https://conference.nber.org/conf_papers/f243813.pdf"),
 );
+check(
+  "ACL Anthology page normalized to PDF",
+  resolveKnownPaperPdfUrl("https://aclanthology.org/2025.naacl-long.346/") ===
+    "https://aclanthology.org/2025.naacl-long.346.pdf",
+);
+check(
+  "ACL Anthology DOI normalized to PDF",
+  resolveKnownPaperPdfUrl("https://doi.org/10.18653/v1/2025.naacl-long.346") ===
+    "https://aclanthology.org/2025.naacl-long.346.pdf",
+);
+check("ACL Anthology DOI host recognized", maybeKnownPaperUrl("https://doi.org/10.18653/v1/2025.naacl-long.346"));
+check(
+  "OpenReview forum normalized to PDF",
+  resolveKnownPaperPdfUrl("https://openreview.net/forum?id=pOq9vDIYev") ===
+    "https://openreview.net/pdf?id=pOq9vDIYev",
+);
+check("OpenReview host recognized", maybeKnownPaperUrl("https://openreview.net/forum?id=pOq9vDIYev"));
 
 console.log("\ncrossref mapping + validation:");
 const crWork: CrossrefWork = {
@@ -113,6 +148,15 @@ const crWork: CrossrefWork = {
   check("arXiv DOI yields arXiv PDF", paper.pdfUrl === "https://arxiv.org/pdf/1706.03762.pdf" && paper.source === "arxiv");
   check("JATS abstract stripped", !!paper.abstract && !paper.abstract.includes("<"));
   check("author profiles carry paper hint", paper.authorProfiles?.[0]?.paperHint?.doi === "10.48550/arXiv.1706.03762");
+}
+{
+  const paper = crossrefWorkToResolvedPaper({
+    title: ["From Distributional to Overton Pluralism: Investigating Large Language Model Alignment"],
+    DOI: "10.18653/v1/2025.naacl-long.346",
+    URL: "https://doi.org/10.18653/v1/2025.naacl-long.346",
+  })!;
+  check("ACL DOI yields anthology PDF", paper.pdfUrl === "https://aclanthology.org/2025.naacl-long.346.pdf");
+  check("ACL DOI source direct PDF", paper.source === "direct-pdf");
 }
 check(
   "guessed title validates match",
@@ -158,6 +202,17 @@ const oaWork: OaWork = {
   check("abstract rebuilt in order", paper.abstract === "The dominant models");
   check("author ids shortened", paper.authorProfiles?.[0]?.openAlexAuthorId === "A5103024730");
   check("doi stripped of prefix", paper.doi === "10.48550/arXiv.1706.03762");
+}
+{
+  const paper = oaWorkToResolvedPaper({
+    display_name: "Diverse Preference Learning for Capabilities and Alignment",
+    primary_location: {
+      landing_page_url: "https://openreview.net/forum?id=pOq9vDIYev",
+      source: { display_name: "ICLR" },
+    },
+  })!;
+  check("OpenAlex OpenReview landing page yields PDF", paper.pdfUrl === "https://openreview.net/pdf?id=pOq9vDIYev");
+  check("OpenAlex OpenReview source direct PDF", paper.source === "direct-pdf");
 }
 check("short id idempotent", shortOpenAlexId("A5103024730") === "A5103024730");
 check(

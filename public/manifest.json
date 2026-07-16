@@ -37,6 +37,7 @@
     "https://conference.nber.org/*",
     "https://www.nber.org/*",
     "https://nber.org/*",
+    "https://openreview.net/*",
     "https://papers.nips.cc/*",
     "https://papers.neurips.cc/*",
     "https://proceedings.neurips.cc/*",

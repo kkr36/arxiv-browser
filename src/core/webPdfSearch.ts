@@ -49,8 +49,10 @@ export function paperWithFoundPdf(
     authorProfiles: base?.authorProfiles,
     year: base?.year,
     venue: base?.venue,
+    doi: base?.doi,
+    pageUrl: base?.pageUrl,
     semanticScholarUrl: base?.semanticScholarUrl,
     pdfUrl: result.pdfUrl,
-    source: "direct-pdf",
+    source: result.pdfUrl.includes("arxiv.org/pdf/") ? "arxiv" : "direct-pdf",
   };
 }

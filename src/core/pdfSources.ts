@@ -1,5 +1,5 @@
 export const KNOWN_PAPER_SOURCE_HINT =
-  "NBER, NeurIPS/NIPS, and IEEE Xplore URLs are supported in addition to direct PDFs.";
+  "NBER, ACL Anthology, OpenReview, NeurIPS/NIPS, and IEEE Xplore URLs are supported in addition to direct PDFs.";
 
 export function resolveKnownPaperPdfUrl(raw: string): string | null {
   const url = safeUrl(raw.trim());
@@ -24,6 +24,22 @@ export function resolveKnownPaperPdfUrl(raw: string): string | null {
     const nberPaperId = path.match(/^\/10\.3386\/(w\d+)\/?$/i)?.[1];
     if (nberPaperId) {
       return `https://www.nber.org/system/files/working_papers/${nberPaperId}/${nberPaperId}.pdf`;
+    }
+    const aclAnthologyId = path.match(/^\/10\.18653\/v1\/([^/]+)\/?$/i)?.[1];
+    if (aclAnthologyId) return `https://aclanthology.org/${aclAnthologyId}.pdf`;
+  }
+
+  if (host === "aclanthology.org") {
+    const anthologyId = path.match(
+      /^\/([a-z]\d{2}-\d{4}|\d{4}\.[a-z][a-z0-9-]*\.\d+)(?:\.pdf)?\/?$/i,
+    )?.[1];
+    if (anthologyId) return `https://aclanthology.org/${anthologyId}.pdf`;
+  }
+
+  if (host === "openreview.net") {
+    const id = url.searchParams.get("id");
+    if (id && /^\/(?:forum|pdf)\/?$/i.test(path)) {
+      return `https://openreview.net/pdf?id=${encodeURIComponent(id)}`;
     }
   }
 
@@ -73,10 +89,13 @@ export function maybeKnownPaperUrl(url: string): boolean {
   return (
     host === "nber.org" ||
     host === "conference.nber.org" ||
+    host === "aclanthology.org" ||
+    host === "openreview.net" ||
     isNeuripsHost(host) ||
     host === "ieeexplore.ieee.org" ||
     (host === "doi.org" &&
       (/^\/10\.3386\/w\d+\/?$/i.test(parsed.pathname) ||
+        /^\/10\.18653\/v1\//i.test(parsed.pathname) ||
         /^\/10\.1109\//i.test(parsed.pathname)))
   );
 }

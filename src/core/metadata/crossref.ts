@@ -1,5 +1,6 @@
 import { fetchJson } from "../net/fetchJson";
 import { createThrottledQueue } from "../net/throttle";
+import { resolveKnownPaperPdfUrl } from "../pdfSources";
 import type { ResolvedPaper } from "../types";
 import { arxivIdFromDoi } from "./identifiers";
 import { MAILTO } from "./politeness";
@@ -85,6 +86,8 @@ export function crossrefWorkToResolvedPaper(work: CrossrefWork): ResolvedPaper |
   const doi = work.DOI;
   const arxivId = doi ? arxivIdFromDoi(doi) : null;
   const pageUrl = work.URL ?? (doi ? `https://doi.org/${doi}` : undefined);
+  const knownPdfUrl = pageUrl ? resolveKnownPaperPdfUrl(pageUrl) ?? undefined : undefined;
+  const pdfUrl = arxivId ? `https://arxiv.org/pdf/${arxivId}.pdf` : knownPdfUrl;
   return {
     title,
     abstract: stripJats(work.abstract),
@@ -98,9 +101,9 @@ export function crossrefWorkToResolvedPaper(work: CrossrefWork): ResolvedPaper |
     year: work.issued?.["date-parts"]?.[0]?.[0] ?? undefined,
     venue: work["container-title"]?.[0] ?? undefined,
     doi,
-    pdfUrl: arxivId ? `https://arxiv.org/pdf/${arxivId}.pdf` : undefined,
+    pdfUrl,
     pageUrl,
-    source: arxivId ? "arxiv" : pageUrl ? "page" : "none",
+    source: arxivId ? "arxiv" : pdfUrl ? "direct-pdf" : pageUrl ? "page" : "none",
   };
 }
 
