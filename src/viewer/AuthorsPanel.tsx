@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AuthorMarker, AuthorProfileRef } from "../core/types";
+import { useRightPanelResize } from "../useRightPanelResize";
 import "./citationsPanel.css";
 
 interface AuthorsPanelProps {
@@ -10,12 +11,6 @@ interface AuthorsPanelProps {
 }
 
 const WIDTH_KEY = "arxiv-browser:authors-panel-width";
-const MIN_WIDTH = 240;
-
-function initialWidth(): number {
-  const stored = Number(localStorage.getItem(WIDTH_KEY));
-  return stored >= MIN_WIDTH ? stored : 340;
-}
 
 export function AuthorsPanel({
   authors,
@@ -23,10 +18,9 @@ export function AuthorsPanel({
   onOpenAuthor,
   onClose,
 }: AuthorsPanelProps) {
-  const [width, setWidth] = useState(initialWidth);
+  const { width, resizeHandleRef } = useRightPanelResize(WIDTH_KEY, 340);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<AuthorSortMode>("author-list");
-  const dragStart = useRef<{ x: number; width: number } | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
@@ -48,32 +42,6 @@ export function AuthorsPanel({
     [authors, sortMode],
   );
 
-  function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
-    dragStart.current = { x: e.clientX, width };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
-    const start = dragStart.current;
-    if (!start) return;
-    const next = Math.min(
-      Math.max(MIN_WIDTH, start.width + (start.x - e.clientX)),
-      Math.round(window.innerWidth * 0.85),
-    );
-    setWidth(next);
-  }
-
-  function handleResizeEnd() {
-    if (!dragStart.current) return;
-    dragStart.current = null;
-    try {
-      localStorage.setItem(WIDTH_KEY, String(width));
-    } catch {
-      // persistence is a nice-to-have
-    }
-  }
-
   function toggleExpanded(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -86,12 +54,9 @@ export function AuthorsPanel({
   return (
     <aside className="cites-panel" style={{ width }}>
       <div
+        ref={resizeHandleRef}
         className="cites-resizer"
         title="Drag to resize"
-        onPointerDown={handleResizeStart}
-        onPointerMove={handleResizeMove}
-        onPointerUp={handleResizeEnd}
-        onPointerCancel={handleResizeEnd}
       />
       <div className="cites-panel-header">
         <span className="cites-panel-title">

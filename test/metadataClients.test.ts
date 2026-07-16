@@ -6,9 +6,11 @@
  * comparison, abstract reconstruction, and author-name matching.
  */
 import { normalizeTitle, titlesRoughlyEqual } from "../src/core/metadata/titleMatch";
+import { detectAuthorMarkers, extractAuthorCandidates } from "../src/core/authors/detectAuthorMarkers";
 import { maybeKnownPaperUrl, resolveKnownPaperPdfUrl } from "../src/core/pdfSources";
 import { guessTitle } from "../src/core/semanticScholar/client";
 import { arxivIdFromDoi, extractArxivId, extractDoi } from "../src/core/metadata/identifiers";
+import type { PageText } from "../src/core/types";
 import {
   crossrefMatchLooksRight,
   crossrefWorkToResolvedPaper,
@@ -126,6 +128,43 @@ check(
 );
 check("OpenReview host recognized", maybeKnownPaperUrl("https://openreview.net/forum?id=pOq9vDIYev"));
 
+console.log("\nauthor extraction:");
+{
+  const page = pageFromLines([
+    ["AI Alignment From Social Choice Perspectives", 18],
+    ["DANIEL HALPERN", 10],
+    ["Google Research", 9],
+    ["EVI MICHA", 10],
+    ["University of Southern California", 9],
+    ["ARIEL D. PROCACCIA", 10],
+    ["Harvard University", 9],
+    ["BENJAMIN SCHIFFER", 10],
+    ["Harvard University", 9],
+    ["ITAI SHAPIRA", 10],
+    ["Harvard University", 9],
+    ["and", 10],
+    ["SHIRLEY ZHANG", 10],
+    ["Harvard University", 9],
+    ["Alignment from human feedback uses human judgments about model outputs.", 9],
+    ["1. INTRODUCTION", 12],
+  ]);
+  const names = extractAuthorCandidates([page]).map((author) => author.name);
+  check(
+    "stacked all-caps affiliation authors extracted",
+    names.join("|") ===
+      "Daniel Halpern|Evi Micha|Ariel D. Procaccia|Benjamin Schiffer|Itai Shapira|Shirley Zhang",
+    names.join(", "),
+  );
+  const markers = detectAuthorMarkers([page], []);
+  const rawMarkedNames = (markers.get(1) ?? []).map((marker) => marker.raw).join("|");
+  check(
+    "stacked all-caps authors get green markers",
+    rawMarkedNames ===
+      "DANIEL HALPERN|EVI MICHA|ARIEL D. PROCACCIA|BENJAMIN SCHIFFER|ITAI SHAPIRA|SHIRLEY ZHANG",
+    rawMarkedNames,
+  );
+}
+
 console.log("\ncrossref mapping + validation:");
 const crWork: CrossrefWork = {
   title: ["Attention Is All You Need"],
@@ -238,6 +277,21 @@ console.log("\nauthor works dedupe:");
   check("duplicates collapsed", works.length === 2, `got ${works.length}`);
   check("kept record backfilled from duplicate", works[0].pdfUrl === "https://x/y.pdf" && works[0].abstract === "dup with abstract");
   check("kept record keeps own fields", works[0].year === 2017);
+}
+
+function pageFromLines(lines: Array<[text: string, fontSize: number]>): PageText {
+  let text = "";
+  let y = 760;
+  const items: PageText["items"] = [];
+  for (const [line, fontSize] of lines) {
+    const start = text.length;
+    text += line;
+    const end = text.length;
+    items.push({ str: line, start, end, x: 48, y, fontSize, hasEOL: true });
+    text += "\n";
+    y -= 14;
+  }
+  return { pageNumber: 1, text, items };
 }
 
 if (failures > 0) {

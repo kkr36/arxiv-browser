@@ -11,12 +11,12 @@
 
 .cites-resizer {
   position: absolute;
-  left: -3px;
+  left: -6px;
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: 12px;
   cursor: col-resize;
-  z-index: 10;
+  z-index: 80;
   touch-action: none;
 }
 

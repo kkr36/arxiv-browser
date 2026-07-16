@@ -53,9 +53,15 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
     // applied when a smaller font actually exists below, so papers that set the
     // title and authors at the same size lose nothing.
     const searchLines = headerLines.filter((line) => !isTitleFontLine(line, headerLines));
-    const emailAnchored = authorsNearEmailLines(searchLines.map((line) => line.text));
+    const lineTexts = searchLines.map((line) => line.text);
+    const emailAnchored = authorsNearEmailLines(lineTexts);
     if (emailAnchored.length > 0) {
       candidates.push(...emailAnchored.map((name) => ({ name })));
+      return dedupeAuthors(candidates);
+    }
+    const stackedAffiliationAuthors = authorsFromStackedAffiliationLines(lineTexts);
+    if (stackedAffiliationAuthors.length > 0) {
+      candidates.push(...stackedAffiliationAuthors.map((name) => ({ name })));
       return dedupeAuthors(candidates);
     }
     for (const line of searchLines) {
@@ -91,13 +97,29 @@ function authorsNearEmailLines(lines: string[]): string[] {
     // first gap so we don't reach into the title above.
     let started = false;
     for (let j = i - 1; j >= Math.max(0, i - 6); j--) {
-      const lineNames = namesFromLine(lines[j]);
+      const allCapsName = standaloneAuthorNameFromLine(lines[j]);
+      const lineNames = allCapsName ? [allCapsName] : namesFromLine(lines[j]);
       if (lineNames.length > 0) {
         names.push(...lineNames);
         started = true;
       } else if (started) {
         break;
       }
+    }
+  }
+  return names;
+}
+
+function authorsFromStackedAffiliationLines(lines: string[]): string[] {
+  const names: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const name = standaloneAuthorNameFromLine(lines[i]);
+    if (!name) continue;
+
+    const prev = meaningfulLineBefore(lines, i);
+    const next = meaningfulLineAfter(lines, i);
+    if (isLikelyAffiliationLine(next) || isLikelyAffiliationLine(prev)) {
+      names.push(name);
     }
   }
   return names;
@@ -123,6 +145,18 @@ function namesFromLine(line: string): string[] {
   return single && isLikelyPersonName(single) ? [single] : [];
 }
 
+function standaloneAuthorNameFromLine(line: string | undefined): string | null {
+  if (!line || /[,;]|(?:\band\b)|&|\u00b7|\|/iu.test(line)) return null;
+  const cleaned = cleanAuthorLine(line);
+  if (!cleaned || rejectAuthorLine(cleaned)) return null;
+
+  const normalized = normalizeAuthorName(cleaned);
+  if (normalized && isLikelyPersonName(normalized)) return normalized;
+
+  const recased = recaseAllCapsName(normalized);
+  return recased !== normalized && isLikelyPersonName(recased) ? recased : null;
+}
+
 function namesFromAffiliationMarkedLine(line: string): string[] {
   const names: string[] = [];
   const re =
@@ -135,6 +169,35 @@ function namesFromAffiliationMarkedLine(line: string): string[] {
   }
 
   return names.length >= 2 ? names : [];
+}
+
+function meaningfulLineBefore(lines: string[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line) return line;
+  }
+  return undefined;
+}
+
+function meaningfulLineAfter(lines: string[], index: number): string | undefined {
+  for (let i = index + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line) return line;
+  }
+  return undefined;
+}
+
+function recaseAllCapsName(name: string): string {
+  if (!name || /[\p{Ll}]/u.test(name) || !/[\p{Lu}]{2}/u.test(name)) return name;
+  return name
+    .split(/\s+/)
+    .map((token) => {
+      if (/^[\p{Lu}]\.?$/u.test(token)) return token;
+      return token.toLocaleLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_m, prefix, letter) => {
+        return `${prefix}${letter.toLocaleUpperCase()}`;
+      });
+    })
+    .join(" ");
 }
 
 function namesFromUnseparatedLine(line: string): string[] {
@@ -174,10 +237,18 @@ function rejectAuthorLine(line: string): boolean {
   if (line.length < 5 || line.length > 120) return true;
   if (/@/.test(line)) return true;
   if (/\b(abstract|introduction|keywords|appendix|references|proceedings|preprint|arxiv)\b/i.test(line)) return true;
-  if (/\b(university|institute|department|school|college|laboratory|labs?|research|brain|google|facebook|meta|microsoft|openai|deepmind|stanford|mit|berkeley|carnegie|cornell|tech|mail|gmail)\b/i.test(line)) return true;
+  if (INSTITUTION_LINE_RE.test(line)) return true;
   if (line.split(/\s+/).length > 12) return true;
   return false;
 }
+
+function isLikelyAffiliationLine(line: string | undefined): boolean {
+  if (!line) return false;
+  return /\S+@\S+/.test(line) || INSTITUTION_LINE_RE.test(line);
+}
+
+const INSTITUTION_LINE_RE =
+  /\b(university|institute|department|school|college|laborator(?:y|ies)|labs?|research|brain|google|facebook|meta|microsoft|openai|deepmind|stanford|mit|berkeley|carnegie|cornell|harvard|tech|mail|gmail)\b/i;
 
 function isLikelyPersonName(name: string): boolean {
   const tokens = name.split(/\s+/).filter(Boolean);

@@ -9,6 +9,7 @@ import { buildObsidianVault } from "../core/export/obsidian/obsidianVault";
 import { buildGraphExportHtml } from "./exportGraphHtml";
 import { SESSION_DOWNLOAD_DIR, downloadBlob } from "./download";
 import { SembleDialog } from "./SembleDialog";
+import { useRightPanelResize } from "../useRightPanelResize";
 import "./graphPanel.css";
 
 interface GraphPanelProps {
@@ -28,14 +29,8 @@ interface GraphPanelProps {
 
 const WIDTH_KEY = "arxiv-browser:graph-panel-width";
 const POSITIONS_KEY = "arxiv-browser:graph-node-positions";
-const MIN_WIDTH = 240;
 const CANVAS_PAD = 16;
 const DRAG_THRESHOLD = 3;
-
-function initialWidth(): number {
-  const stored = Number(localStorage.getItem(WIDTH_KEY));
-  return stored >= MIN_WIDTH ? stored : 400;
-}
 
 interface HoverState {
   node: GraphNode;
@@ -60,7 +55,7 @@ export function GraphPanel({
   const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
   const roots = useMemo(() => rootIds(graph), [graph]);
   const [hover, setHover] = useState<HoverState | null>(null);
-  const [width, setWidth] = useState(initialWidth);
+  const { width, resizeHandleRef } = useRightPanelResize(WIDTH_KEY, 400);
   const [manualPositions, setManualPositions] = useState(initialManualPositions);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -80,7 +75,6 @@ export function GraphPanel({
     () => graph.nodes.reduce((count, n) => count + (manualPositions.has(n.id) ? 1 : 0), 0),
     [graph.nodes, manualPositions],
   );
-  const resizeDrag = useRef<{ x: number; width: number } | null>(null);
   const nodeDrag = useRef<{
     id: string;
     pointerId: number;
@@ -133,33 +127,6 @@ export function GraphPanel({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [manualCitationOpen]);
-
-  function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
-    resizeDrag.current = { x: e.clientX, width };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
-    const start = resizeDrag.current;
-    if (!start) return;
-    // The panel hugs the right edge, so dragging left grows it.
-    const next = Math.min(
-      Math.max(MIN_WIDTH, start.width + (start.x - e.clientX)),
-      Math.round(window.innerWidth * 0.85),
-    );
-    setWidth(next);
-  }
-
-  function handleResizeEnd() {
-    if (!resizeDrag.current) return;
-    resizeDrag.current = null;
-    try {
-      localStorage.setItem(WIDTH_KEY, String(width));
-    } catch {
-      // persistence is a nice-to-have
-    }
-  }
 
   function handleNodeDragStart(e: React.PointerEvent<SVGGElement>, id: string, position: NodePos) {
     if (e.button !== 0) return;
@@ -292,12 +259,9 @@ export function GraphPanel({
   return (
     <aside className="graph-panel" style={{ width }}>
       <div
+        ref={resizeHandleRef}
         className="graph-resizer"
         title="Drag to resize"
-        onPointerDown={handleResizeStart}
-        onPointerMove={handleResizeMove}
-        onPointerUp={handleResizeEnd}
-        onPointerCancel={handleResizeEnd}
       />
       <div className="graph-panel-header">
         <span className="graph-panel-title">

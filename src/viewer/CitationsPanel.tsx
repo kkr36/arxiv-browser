@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BibEntry, CitationMarker, ResolvedPaper } from "../core/types";
 import { resolveEntry } from "../core/citationService";
 import { guessTitle } from "../core/semanticScholar/client";
 import { findPublicPdf, paperWithFoundPdf } from "../core/webPdfSearch";
+import { useRightPanelResize } from "../useRightPanelResize";
 import "./citationsPanel.css";
 
 interface CitationsPanelProps {
@@ -15,12 +16,6 @@ interface CitationsPanelProps {
 }
 
 const WIDTH_KEY = "arxiv-browser:citations-panel-width";
-const MIN_WIDTH = 240;
-
-function initialWidth(): number {
-  const stored = Number(localStorage.getItem(WIDTH_KEY));
-  return stored >= MIN_WIDTH ? stored : 340;
-}
 
 /** Per-entry click feedback; resolution itself is cached in citationService. */
 type ItemStatus =
@@ -39,11 +34,10 @@ export function CitationsPanel({
   onOpenPaper,
   onClose,
 }: CitationsPanelProps) {
-  const [width, setWidth] = useState(initialWidth);
+  const { width, resizeHandleRef } = useRightPanelResize(WIDTH_KEY, 340);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<Map<number, ItemStatus>>(new Map());
   const [sortMode, setSortMode] = useState<CitationSortMode>("paper-order");
-  const dragStart = useRef<{ x: number; width: number } | null>(null);
 
   // A new paper's entries arrive as a new array; drop the old paper's
   // expansion/resolution feedback rather than showing it against new items.
@@ -66,33 +60,6 @@ export function CitationsPanel({
     () => sortCitationEntries(entries, sortMode),
     [entries, sortMode],
   );
-
-  function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
-    dragStart.current = { x: e.clientX, width };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
-    const start = dragStart.current;
-    if (!start) return;
-    // The panel sits at the right side, so dragging left grows it.
-    const next = Math.min(
-      Math.max(MIN_WIDTH, start.width + (start.x - e.clientX)),
-      Math.round(window.innerWidth * 0.85),
-    );
-    setWidth(next);
-  }
-
-  function handleResizeEnd() {
-    if (!dragStart.current) return;
-    dragStart.current = null;
-    try {
-      localStorage.setItem(WIDTH_KEY, String(width));
-    } catch {
-      // persistence is a nice-to-have
-    }
-  }
 
   function toggleExpanded(index: number) {
     setExpanded((prev) => {
@@ -166,12 +133,9 @@ export function CitationsPanel({
   return (
     <aside className="cites-panel" style={{ width }}>
       <div
+        ref={resizeHandleRef}
         className="cites-resizer"
         title="Drag to resize"
-        onPointerDown={handleResizeStart}
-        onPointerMove={handleResizeMove}
-        onPointerUp={handleResizeEnd}
-        onPointerCancel={handleResizeEnd}
       />
       <div className="cites-panel-header">
         <span className="cites-panel-title">
