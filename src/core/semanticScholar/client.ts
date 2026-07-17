@@ -235,6 +235,9 @@ export function guessTitle(rawText: string): string | null {
   candidate = candidate.split(SENTENCE_SPLIT_RE)[0].trim();
   const venue = candidate.match(TRAILING_VENUE_RE);
   if (venue && venue.index !== undefined) candidate = candidate.slice(0, venue.index);
+  // Web/report references put the year right after the title with no venue in
+  // between ("Community Notes: A New Way to Add Context to Posts, 2025.").
+  candidate = candidate.replace(/\s*[,;]\s*\(?(?:19|20)\d{2}[a-z]?\)?\s*\.?\s*$/, "");
   candidate = candidate.replace(/[.,;]\s*$/, "").trim();
 
   if (VENUE_SHAPED_RE.test(candidate)) return null;

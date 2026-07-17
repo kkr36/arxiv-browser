@@ -20,6 +20,15 @@ export interface GraphNode {
   paperCount?: number;
   citationCount?: number;
   hIndex?: number;
+  /** User-written note about this node (annotation). */
+  note?: string;
+  /** User-supplied link (project page, or a PDF the tool couldn't find). */
+  userUrl?: string;
+}
+
+export interface NodeAnnotation {
+  note?: string;
+  userUrl?: string;
 }
 
 export interface GraphEdge {
@@ -148,6 +157,50 @@ export function upgradePlaceholderTitle(
   };
 }
 
+/**
+ * Sets (or clears, with empty strings) a node's user annotation. A userUrl
+ * that looks like a directly fetchable PDF also becomes the node's address,
+ * so a paper whose PDF the tool couldn't find opens in-app once the user
+ * pastes one; un-linking reverses that upgrade. Pure: returns a new graph.
+ */
+export function annotateNode(
+  graph: ExplorationGraph,
+  id: string,
+  annotation: NodeAnnotation,
+): ExplorationGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => {
+      if (n.id !== id) return n;
+      const note = annotation.note?.trim() || undefined;
+      const userUrl = annotation.userUrl?.trim() || undefined;
+      const next: GraphNode = { ...n, note, userUrl };
+      // Undo a PDF upgrade a previous userUrl performed, then re-apply for
+      // the new link if it still qualifies.
+      if (n.userUrl && n.userUrl !== userUrl && n.pdfUrl === n.userUrl) {
+        next.pdfUrl = undefined;
+        if (next.address === n.userUrl) next.address = undefined;
+        if (next.kind === "pdf") next.kind = "external";
+      }
+      if (userUrl && next.kind !== "author" && !next.pdfUrl && looksLikePdfUrl(userUrl)) {
+        next.pdfUrl = userUrl;
+        next.address = userUrl;
+        next.kind = "pdf";
+      }
+      return next;
+    }),
+  };
+}
+
+function looksLikePdfUrl(url: string): boolean {
+  return (
+    /^https?:\/\//i.test(url) &&
+    (/\.pdf($|[?#])/i.test(url) ||
+      /arxiv\.org\/pdf\//i.test(url) ||
+      /openreview\.net\/pdf/i.test(url))
+  );
+}
+
 /** Removes a node and its incident edges. Children of the removed node keep
  * their other parents, or become roots. Pure: returns a new graph. */
 export function removeNode(graph: ExplorationGraph, id: string): ExplorationGraph {
@@ -184,6 +237,8 @@ function mergeNodes(existing: GraphNode, incoming: GraphNode): GraphNode {
     paperCount: existing.paperCount ?? incoming.paperCount,
     citationCount: existing.citationCount ?? incoming.citationCount,
     hIndex: existing.hIndex ?? incoming.hIndex,
+    note: existing.note ?? incoming.note,
+    userUrl: existing.userUrl ?? incoming.userUrl,
     kind:
       existing.kind === "pdf" || incoming.kind === "pdf"
         ? "pdf"

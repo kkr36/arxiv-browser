@@ -16,13 +16,27 @@ export const NODE_H = 42;
 const X_GAP = 16;
 const Y_GAP = 34;
 const PAD = 16;
+/** Width budget before a node's children wrap onto the next row (~3 columns).
+ * Keeps branchy graphs growing vertically instead of forcing horizontal
+ * scrolling in the side panel. */
+const MAX_ROW_W = 3 * NODE_W + 2 * X_GAP;
+
+/** A laid-out subtree: its bounding box, plus a placer that assigns absolute
+ * positions once the block's top-left corner is known. */
+interface Block {
+  w: number;
+  h: number;
+  place: (x: number, y: number) => void;
+}
 
 /**
- * Layered top-to-bottom layout: row = citation depth (longest path from a
- * root, with a stack guard so citation cycles can't recurse forever), lanes
- * assigned in DFS pre-order so children sit near their parents. This favors
- * vertical growth for the side panel while still letting branchy graphs fan
- * out horizontally when needed.
+ * Compact tree-block layout. Each node is centered above its children, and a
+ * node's child blocks wrap into multiple rows once they exceed MAX_ROW_W —
+ * so exploring many citations from one paper grows the graph downward, not
+ * into an unscrollable horizontal sprawl. The spanning tree follows each
+ * node's first-discovered parent (DFS from roots in insertion order, with
+ * leftover citation-cycle nodes picked up as extra roots); any additional
+ * edges are simply drawn between the placed nodes.
  */
 export function layoutGraph(graph: ExplorationGraph): GraphLayout {
   const positions = new Map<string, NodePos>();
@@ -30,61 +44,113 @@ export function layoutGraph(graph: ExplorationGraph): GraphLayout {
 
   const ids = graph.nodes.map((n) => n.id);
   const idSet = new Set(ids);
-  const parents = new Map<string, string[]>(ids.map((id) => [id, []]));
+  const hasParent = new Set<string>();
   const children = new Map<string, string[]>(ids.map((id) => [id, []]));
   for (const e of graph.edges) {
     if (!idSet.has(e.from) || !idSet.has(e.to)) continue;
-    parents.get(e.to)?.push(e.from);
+    hasParent.add(e.to);
     children.get(e.from)?.push(e.to);
   }
 
-  const depth = new Map<string, number>();
-  const onStack = new Set<string>();
-  const depthOf = (id: string): number => {
-    const memo = depth.get(id);
-    if (memo !== undefined) return memo;
-    onStack.add(id);
-    let d = 0;
-    for (const p of parents.get(id) ?? []) {
-      if (onStack.has(p)) continue;
-      d = Math.max(d, depthOf(p) + 1);
-    }
-    onStack.delete(id);
-    depth.set(id, d);
-    return d;
-  };
-  ids.forEach(depthOf);
-
-  const order: string[] = [];
+  // Spanning forest: each node hangs under the parent that first reaches it.
+  const treeChildren = new Map<string, string[]>(ids.map((id) => [id, []]));
   const visited = new Set<string>();
-  const dfs = (id: string) => {
-    if (visited.has(id)) return;
+  const claim = (id: string) => {
     visited.add(id);
-    order.push(id);
-    for (const c of children.get(id) ?? []) dfs(c);
+    for (const c of children.get(id) ?? []) {
+      if (visited.has(c)) continue;
+      treeChildren.get(id)?.push(c);
+      claim(c);
+    }
   };
-  for (const id of ids) if ((parents.get(id) ?? []).length === 0) dfs(id);
+  const roots: string[] = [];
+  for (const id of ids) {
+    if (!hasParent.has(id)) {
+      roots.push(id);
+      claim(id);
+    }
+  }
   // Components that are pure cycles have no root; pick them up in id order.
-  for (const id of ids) dfs(id);
-
-  const lanesUsed = new Map<number, number>();
-  let maxDepth = 0;
-  let maxLane = 0;
-  for (const id of order) {
-    const d = depth.get(id) ?? 0;
-    const lane = lanesUsed.get(d) ?? 0;
-    lanesUsed.set(d, lane + 1);
-    positions.set(id, {
-      x: PAD + lane * (NODE_W + X_GAP),
-      y: PAD + d * (NODE_H + Y_GAP),
-    });
-    maxDepth = Math.max(maxDepth, d);
-    maxLane = Math.max(maxLane, lane);
+  for (const id of ids) {
+    if (!visited.has(id)) {
+      roots.push(id);
+      claim(id);
+    }
   }
 
-  return {
-    positions,
-    width: PAD * 2 + (maxLane + 1) * NODE_W + maxLane * X_GAP,
-    height: PAD * 2 + (maxDepth + 1) * NODE_H + maxDepth * Y_GAP,
+  const blockOf = (id: string): Block => {
+    const kids = (treeChildren.get(id) ?? []).map(blockOf);
+    if (kids.length === 0) {
+      return {
+        w: NODE_W,
+        h: NODE_H,
+        place: (x, y) => positions.set(id, { x, y }),
+      };
+    }
+    const rows = wrapIntoRows(kids);
+    const kidsW = Math.max(...rows.map(rowWidth));
+    const kidsH =
+      rows.reduce((sum, row) => sum + rowHeight(row), 0) + (rows.length - 1) * Y_GAP;
+    const w = Math.max(NODE_W, kidsW);
+    return {
+      w,
+      h: NODE_H + Y_GAP + kidsH,
+      place: (x, y) => {
+        positions.set(id, { x: x + (w - NODE_W) / 2, y });
+        let rowY = y + NODE_H + Y_GAP;
+        for (const row of rows) {
+          let colX = x + (w - rowWidth(row)) / 2;
+          for (const kid of row) {
+            kid.place(colX, rowY);
+            colX += kid.w + X_GAP;
+          }
+          rowY += rowHeight(row) + Y_GAP;
+        }
+      },
+    };
   };
+
+  // Roots stack with the same wrapping, so several small explorations share a
+  // row while a deep one still gets a band of its own.
+  const rootRows = wrapIntoRows(roots.map(blockOf));
+  let y = PAD;
+  let width = 0;
+  for (const row of rootRows) {
+    let x = PAD;
+    for (const block of row) {
+      block.place(x, y);
+      x += block.w + X_GAP;
+    }
+    width = Math.max(width, x - X_GAP + PAD);
+    y += rowHeight(row) + Y_GAP;
+  }
+
+  return { positions, width, height: y - Y_GAP + PAD };
+}
+
+function wrapIntoRows(blocks: Block[]): Block[][] {
+  const rows: Block[][] = [];
+  let row: Block[] = [];
+  let rowW = 0;
+  for (const block of blocks) {
+    const nextW = rowW === 0 ? block.w : rowW + X_GAP + block.w;
+    if (row.length > 0 && nextW > MAX_ROW_W) {
+      rows.push(row);
+      row = [block];
+      rowW = block.w;
+    } else {
+      row.push(block);
+      rowW = nextW;
+    }
+  }
+  if (row.length > 0) rows.push(row);
+  return rows;
+}
+
+function rowWidth(row: Block[]): number {
+  return row.reduce((sum, b) => sum + b.w, 0) + (row.length - 1) * X_GAP;
+}
+
+function rowHeight(row: Block[]): number {
+  return Math.max(...row.map((b) => b.h));
 }

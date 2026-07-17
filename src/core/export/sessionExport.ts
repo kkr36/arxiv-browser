@@ -27,11 +27,15 @@ export interface SessionExportNode {
     semanticScholarUrl?: string;
     googleScholarUrl?: string;
     homepage?: string;
+    /** User-supplied link from a node annotation. */
+    custom?: string;
   };
   authors?: string[];
   year?: number;
   venue?: string;
   abstract?: string;
+  /** User-written annotation. */
+  note?: string;
   paperCount?: number;
   citationCount?: number;
   hIndex?: number;
@@ -46,7 +50,9 @@ export interface SessionExportNode {
 }
 
 export function canonicalNodeUrl(node: GraphNode): string | undefined {
-  return node.pdfUrl ?? node.semanticScholarUrl ?? node.googleScholarUrl ?? node.homepage;
+  return (
+    node.userUrl ?? node.pdfUrl ?? node.semanticScholarUrl ?? node.googleScholarUrl ?? node.homepage
+  );
 }
 
 /**
@@ -109,11 +115,13 @@ export function buildSessionExport(
         semanticScholarUrl: n.semanticScholarUrl,
         googleScholarUrl: n.googleScholarUrl,
         homepage: n.homepage,
+        custom: n.userUrl,
       },
       authors: n.authors,
       year: n.year,
       venue: n.venue,
       abstract: n.abstract,
+      note: n.note,
       paperCount: n.paperCount,
       citationCount: n.citationCount,
       hIndex: n.hIndex,

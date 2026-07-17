@@ -113,6 +113,30 @@ console.log("\ncross-side normalization (marker ↔ entry):");
   else fail("accent normalization", `marker did not resolve to entry (entryKey=${JSON.stringify(entryKey)})`);
 }
 
+{
+  // LaTeX PDFs emit accents as detached glyphs, so page text reads
+  // "B ¨achtiger" while the bibliography side is repaired to "Bächtiger"
+  // (arXiv:2503.18962). The marker must still detect and resolve.
+  const markers = detectMarkersOnPage(
+    pageOf("in deliberative democracy (B ¨achtiger et al., 2018) the"),
+    undefined,
+    "author-year",
+  );
+  const entryKey = extractAuthorYearKey(
+    "Bächtiger, A., Dryzek, J. S., Mansbridge, J., and Warren, M. E. The Oxford Handbook of Deliberative Democracy. Oxford University Press, 2018.",
+  )!;
+  const matched = matchMarkersToEntries(markers, [
+    { index: 0, rawText: "x", authorYearKey: entryKey },
+  ]);
+  if (matched.some((m) => m.entryIndices.includes(0)))
+    pass("detached-accent marker (B ¨achtiger) resolves to repaired entry (Bächtiger)");
+  else
+    fail(
+      "detached-accent normalization",
+      `marker did not resolve (markers=${JSON.stringify(markers.map((m) => m.authorYears))}, entryKey=${JSON.stringify(entryKey)})`,
+    );
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failing case(s)\n`);
   process.exit(1);

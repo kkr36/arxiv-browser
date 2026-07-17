@@ -1,5 +1,5 @@
 export const KNOWN_PAPER_SOURCE_HINT =
-  "NBER, ACL Anthology, OpenReview, NeurIPS/NIPS, and IEEE Xplore URLs are supported in addition to direct PDFs.";
+  "NBER, ACL Anthology, OpenReview, NeurIPS/NIPS, AAAI (ojs.aaai.org), and IEEE Xplore URLs are supported in addition to direct PDFs.";
 
 export function resolveKnownPaperPdfUrl(raw: string): string | null {
   const url = safeUrl(raw.trim());
@@ -53,6 +53,15 @@ export function resolveKnownPaperPdfUrl(raw: string): string | null {
     }
   }
 
+  if (host === "ojs.aaai.org") {
+    // OJS galley pages: /index.php/AAAI/article/view/<article>/<galley> is an
+    // HTML wrapper; the download variant serves the PDF bytes directly.
+    const galley = path.match(/^\/index\.php\/([^/]+)\/article\/(?:view|download)\/(\d+)\/(\d+)\/?$/i);
+    if (galley) {
+      return `https://ojs.aaai.org/index.php/${galley[1]}/article/download/${galley[2]}/${galley[3]}`;
+    }
+  }
+
   if (host === "ieeexplore.ieee.org") {
     const arnumber =
       url.searchParams.get("arnumber") ??
@@ -92,6 +101,7 @@ export function maybeKnownPaperUrl(url: string): boolean {
     host === "aclanthology.org" ||
     host === "openreview.net" ||
     isNeuripsHost(host) ||
+    host === "ojs.aaai.org" ||
     host === "ieeexplore.ieee.org" ||
     (host === "doi.org" &&
       (/^\/10\.3386\/w\d+\/?$/i.test(parsed.pathname) ||

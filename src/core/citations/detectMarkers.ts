@@ -1,3 +1,4 @@
+import { DETACHED_ACCENT_CLASS } from "../pdf/repairDiacritics";
 import type { CitationMarker, CitationStyle, PageText } from "../types";
 
 const NUMBERED_MARKER_RE = /\[\s*(\d+(?:\s*[-–,]\s*\d+)*)\s*\]/g;
@@ -7,7 +8,15 @@ const BRACKET_KEY_MARKER_RE =
 const BRACKET_KEY_TOKEN_RE = /[A-Za-z][A-Za-z0-9+_.:-]{1,24}/g;
 const BRACKET_AUTHOR_YEAR_RE = /\[([^[\]]{0,450}(?:19|20)\d{2}[a-z]?[^[\]]*)\]/g;
 const PAREN_AUTHOR_YEAR_RE = /\(([^()]{0,450}(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
-const AUTHOR_YEAR_SURNAME = String.raw`[\p{Lu}][\p{L}\p{M}'’-]+(?:-\s*[\p{L}\p{M}'’-]+)?`;
+// Page text keeps PDF extraction's detached-accent artifacts (repairing it
+// would shift the offsets the highlight overlay depends on), so a surname may
+// contain " ¨" mid-word: "B ¨achtiger et al." — the accent segment
+// alternative absorbs it, and matching normalizes both sides via NFKD.
+const SURNAME_ACCENT_SEGMENT = `(?: ?[${DETACHED_ACCENT_CLASS}][\\p{L}\\p{M}'’-]+)`;
+const AUTHOR_YEAR_SURNAME =
+  String.raw`[\p{Lu}](?:[\p{L}\p{M}'’-]*` +
+  SURNAME_ACCENT_SEGMENT +
+  String.raw`+|[\p{L}\p{M}'’-]+)(?:-\s*[\p{L}\p{M}'’-]+)?`;
 const AUTHOR_YEAR_CAP_WORD_RE = new RegExp(AUTHOR_YEAR_SURNAME, "gu");
 const AUTHOR_YEAR_RE = /\b((?:19|20)\d{2}[a-z]?)/g;
 // Narrative form, where the author name sits OUTSIDE the delimiters and one or

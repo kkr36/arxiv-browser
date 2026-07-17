@@ -7,6 +7,7 @@ import {
 } from "./src/core/pdfSources";
 import { extractDoi } from "./src/core/metadata/identifiers";
 import { MAILTO } from "./src/core/metadata/politeness";
+import { titlesRoughlyEqual } from "./src/core/metadata/titleMatch";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const PDF_SEARCH_TIMEOUT_MS = 12_000;
@@ -233,7 +234,7 @@ async function findPublicPdfServer(
   const unpaywall = await findUnpaywallPdf(rawText, title, ieeeXploreCookie);
   if (unpaywall) return unpaywall;
 
-  const openAlex = await findOpenAlexPdf(title || rawText, ieeeXploreCookie, openAlexApiKey);
+  const openAlex = await findOpenAlexPdf(title || rawText, title, ieeeXploreCookie, openAlexApiKey);
   if (openAlex) return openAlex;
 
   const queryTitle = title || rawText.slice(0, 180);
@@ -272,6 +273,7 @@ async function findUnpaywallPdf(
 
 async function findOpenAlexPdf(
   query: string,
+  wantedTitle: string,
   ieeeXploreCookie?: string,
   openAlexApiKey?: string,
 ): Promise<PublicPdfSearchResult | null> {
@@ -290,6 +292,9 @@ async function findOpenAlexPdf(
   }>(url);
 
   for (const work of json?.results ?? []) {
+    // OpenAlex relevance search always returns *something*; without a title
+    // check the first hit with any PDF wins and an unrelated paper renders.
+    if (wantedTitle && !(work.title && titlesRoughlyEqual(work.title, wantedTitle))) continue;
     const urls = [
       work.open_access?.oa_url,
       work.primary_location?.pdf_url,

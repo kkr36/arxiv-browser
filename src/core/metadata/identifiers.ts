@@ -24,3 +24,30 @@ export function arxivIdFromDoi(doi: string): string | null {
   const m = doi.match(/^10\.48550\/arxiv\.(.+)$/i);
   return m ? m[1] : null;
 }
+
+/**
+ * The first http(s) URL a reference carries. PDF line wrapping splits long
+ * URLs with a stray space ("https://transparency.meta. com/features/…"), so
+ * fragments are glued back while the previous piece ends mid-URL and the next
+ * token still looks like a bare path tail rather than prose (prose resumes
+ * with a capitalized word).
+ */
+export function extractReferenceUrl(rawText: string): string | null {
+  const start = rawText.search(/https?:\/\//i);
+  if (start === -1) return null;
+  const tokens = rawText.slice(start).split(/\s+/);
+  let url = tokens[0];
+  for (let i = 1; i < tokens.length; i++) {
+    if (!/[/.=-]$/.test(url)) break;
+    if (!/^[a-z0-9][\w.~/%#?&=-]*$/.test(tokens[i])) break;
+    url += tokens[i];
+  }
+  url = url.replace(/[.,;:)\]]+$/, "");
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol) || !parsed.hostname.includes(".")) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}

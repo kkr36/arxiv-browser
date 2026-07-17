@@ -3,9 +3,10 @@ import { extractAllPageText } from "./pdf/extractText";
 import { parseBibliography } from "./citations/parseBibliography";
 import { detectMarkersOnPage, type ExcludedRange } from "./citations/detectMarkers";
 import { matchMarkersToEntries } from "./citations/matchMarkersToEntries";
-import { guessTitle, matchPaperByReferenceText } from "./semanticScholar/client";
+import { guessTitle, matchPaperByReferenceText, type S2Paper } from "./semanticScholar/client";
 import { isLikelyProxyHostilePdfUrl, toResolvedPaper } from "./semanticScholar/resolvePaper";
-import { extractArxivId, extractDoi } from "./metadata/identifiers";
+import { extractArxivId, extractDoi, extractReferenceUrl } from "./metadata/identifiers";
+import { titlesRoughlyEqual } from "./metadata/titleMatch";
 import {
   crossrefWorkToResolvedPaper,
   getCrossrefWorkByDoi,
@@ -67,12 +68,17 @@ export function resolveEntry(entries: BibEntry[], entryIndex: number): Promise<R
 
   const entry = entries[entryIndex];
   const promise = (async () => {
+    // v7: bumped when detached-diacritic repair fixed title/key extraction,
+    // wrong-paper guards were added to the S2/OpenAlex fallbacks, and
+    // URL-only references started resolving to their own web page — cached
+    // results from before could point at entirely wrong papers.
+    //
     // v6: bumped when no-PDF metadata matches started continuing through
     // arXiv/public-PDF discovery instead of stopping at page-only records.
     //
     // v5: bumped when the resolution pipeline moved from Semantic Scholar
     // to arXiv/Crossref/OpenAlex, so stale S2-era results get re-resolved.
-    const cacheKey = `arxiv-browser:resolve-v6:${entry.rawText.slice(0, 120)}`;
+    const cacheKey = `arxiv-browser:resolve-v7:${entry.rawText.slice(0, 120)}`;
     const stored = safeLocalStorageGet(cacheKey);
     if (stored) {
       try {
@@ -130,7 +136,7 @@ async function resolveRawReference(rawText: string): Promise<ResolvedPaper | nul
     ]);
     if (crossref) {
       const resolved = crossrefWorkToResolvedPaper(crossref);
-      if (resolved) return withBestDiscoveredPdf(withOpenAccessPdf(resolved, oaPdfUrl), rawText, title);
+      if (resolved) return withBestDiscoveredPdf(resolved, rawText, title, oaPdfUrl);
     }
   }
 
@@ -144,32 +150,48 @@ async function resolveRawReference(rawText: string): Promise<ResolvedPaper | nul
   if (merged) {
     if (merged.pdfUrl) return merged;
     const oaPdfUrl = merged.doi ? await findUnpaywallPdfUrl(merged.doi).catch(() => null) : null;
-    return withBestDiscoveredPdf(withOpenAccessPdf(merged, oaPdfUrl), rawText, title);
+    return withBestDiscoveredPdf(merged, rawText, title, oaPdfUrl);
   }
 
   const foundByTitle = await withBestDiscoveredPdf(null, rawText, title);
   if (foundByTitle) return foundByTitle;
 
-  return withBestDiscoveredPdf(await resolveViaSemanticScholar(rawText), rawText, title);
-}
+  // No scholarly index knows this reference, but it links a web page itself
+  // (corporate newsroom posts, standards, reports). The reference's own URL
+  // is authoritative — better a correct web page than a fuzzy-search PDF of
+  // some unrelated paper.
+  const referenceUrl = extractReferenceUrl(rawText);
+  if (referenceUrl) {
+    return {
+      title: title ?? rawText.slice(0, 120),
+      authors: [],
+      pageUrl: referenceUrl,
+      source: "page",
+    };
+  }
 
-function withOpenAccessPdf(paper: ResolvedPaper, oaPdfUrl: string | null): ResolvedPaper {
-  if (paper.pdfUrl || !oaPdfUrl) return paper;
-  return { ...paper, pdfUrl: oaPdfUrl, source: "direct-pdf" };
+  const s2 = await resolveViaSemanticScholar(rawText);
+  return s2 ? withBestDiscoveredPdf(s2, rawText, title) : null;
 }
 
 async function withBestDiscoveredPdf(
   base: ResolvedPaper | null,
   rawText: string,
   guessedTitle: string | null,
+  oaPdfUrl?: string | null,
 ): Promise<ResolvedPaper | null> {
   if (base?.pdfUrl) return base;
 
+  // arXiv is tried before an in-hand open-access URL: publisher OA hosts
+  // (AAAI's OJS included) intermittently stall or bot-block non-browser
+  // fetches, while arXiv PDFs always render.
   const title = guessedTitle ?? base?.title ?? guessTitle(rawText);
   if (title) {
     const arxiv = await searchArxivByTitle(title).catch(() => null);
     if (arxiv) return mergeResolvedCandidates(base, arxiv);
   }
+
+  if (base && oaPdfUrl) return { ...base, pdfUrl: oaPdfUrl, source: "direct-pdf" };
 
   const publicPdf = await findPublicPdf({ title: title ?? undefined, rawText }).catch(() => null);
   if (!publicPdf) return base;
@@ -224,10 +246,12 @@ function pickRicherAuthorProfiles(base: ResolvedPaper, other: ResolvedPaper) {
 }
 
 /** Last-resort path preserving the old pipeline's S2 behavior, including the
- * swap to an arXiv PDF when S2's open-access URL is behind bot protection. */
+ * swap to an arXiv PDF when S2's open-access URL is behind bot protection.
+ * S2's general search always returns *something*, so the hit only counts when
+ * it demonstrably matches the reference. */
 async function resolveViaSemanticScholar(rawText: string): Promise<ResolvedPaper | null> {
   const s2 = await matchPaperByReferenceText(rawText);
-  if (!s2) return null;
+  if (!s2 || !s2MatchLooksRight(s2, rawText)) return null;
   const resolved = toResolvedPaper(s2);
   const directPdf = s2.openAccessPdf?.url;
   if (directPdf && isLikelyProxyHostilePdfUrl(directPdf) && resolved.source !== "arxiv") {
@@ -246,6 +270,19 @@ async function resolveViaSemanticScholar(rawText: string): Promise<ResolvedPaper
     }
   }
   return resolved;
+}
+
+/** Same guard shape as `crossrefMatchLooksRight`: near-exact title match when
+ * a title could be extracted, else the hit's first-author surname and year
+ * must both literally appear in the reference text. */
+function s2MatchLooksRight(s2: S2Paper, rawText: string): boolean {
+  const title = guessTitle(rawText);
+  if (title) return titlesRoughlyEqual(s2.title, title);
+  const surname = s2.authors?.[0]?.name?.trim().split(/\s+/).at(-1);
+  if (!surname || !s2.year) return false;
+  return (
+    rawText.toLowerCase().includes(surname.toLowerCase()) && rawText.includes(String(s2.year))
+  );
 }
 
 function safeLocalStorageGet(key: string): string | null {

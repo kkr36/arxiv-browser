@@ -16,6 +16,7 @@ import {
   EMPTY_GRAPH,
   addGraphEdge,
   addPaperNode,
+  annotateNode,
   nodeFromAuthor,
   nodeFromPaper,
   nodeIdForPaper,
@@ -24,9 +25,12 @@ import {
   upgradePlaceholderTitle,
   type ExplorationGraph,
   type GraphNode,
+  type NodeAnnotation,
 } from "./core/graph/explorationGraph";
 import { PdfViewer } from "./viewer/PdfViewer";
 import { AuthorPageView } from "./viewer/AuthorPageView";
+import { WebPageView } from "./viewer/WebPageView";
+import { fetchWebPageContent, type WebPageContent } from "./core/web/fetchWebPage";
 import { AuthorsPanel } from "./viewer/AuthorsPanel";
 import { CitationsPanel } from "./viewer/CitationsPanel";
 import { GraphPanel } from "./graph/GraphPanel";
@@ -53,16 +57,24 @@ interface AuthorView {
   label: string;
 }
 
-type MainView = PaperView | AuthorView;
+interface WebView {
+  kind: "web";
+  page: WebPageContent;
+  label: string;
+}
+
+type MainView = PaperView | AuthorView | WebView;
 
 interface HistoryEntry {
-  kind: "paper" | "author";
+  kind: "paper" | "author" | "web";
   /** Master copy of the PDF — pdf.js transfers (detaches) whatever buffer it
    * receives, so loads always get a `.slice(0)` and this copy stays usable
    * for back/forward. */
   bytes?: ArrayBuffer;
   author?: ResolvedAuthorPage;
   paper?: ResolvedPaper;
+  /** Extracted content of a cited web page, kept for instant back/forward. */
+  webPage?: WebPageContent;
   label: string;
   /** Address-bar value for this entry: the PDF URL, or a file name for uploads. */
   address: string;
@@ -206,9 +218,14 @@ export default function App({
     seq: number,
     nav: { push: true } | { push: false; index: number },
   ): Promise<PDFDocumentProxy | null> {
-    if (entry.kind === "author") {
-      if (!entry.author) return null;
-      setView({ kind: "author", author: entry.author, label: entry.label });
+    if (entry.kind === "author" || entry.kind === "web") {
+      if (entry.kind === "author") {
+        if (!entry.author) return null;
+        setView({ kind: "author", author: entry.author, label: entry.label });
+      } else {
+        if (!entry.webPage) return null;
+        setView({ kind: "web", page: entry.webPage, label: entry.label });
+      }
       setFocusedCitationEntry(null);
       setInput(entry.address);
       setStatus({ kind: "idle" });
@@ -307,7 +324,75 @@ export default function App({
         commitGraph((g) => addPaperNode(g, nodeFromAuthor(origin.author), origin.parentId));
       }
     } catch (err) {
-      if (seq === loadSeq.current) setStatus({ kind: "error", message: (err as Error).message });
+      if (seq !== loadSeq.current) return;
+      // The URL served HTML rather than PDF bytes — a landing/newsroom page.
+      // Render it in the reader view instead of failing the load.
+      if (/not a PDF/i.test((err as Error).message)) {
+        const paper: ResolvedPaper =
+          origin.kind === "citation"
+            ? origin.paper
+            : { title: label ?? url, authors: [], pageUrl: url, source: "page" };
+        void openWebPage(paper, paper.pageUrl ?? url, origin);
+        return;
+      }
+      setStatus({ kind: "error", message: (err as Error).message });
+    }
+  }
+
+  /** Opens a cited web page (a reference that links a site, not a paper) in
+   * the in-app reader view and records it in the exploration graph. Falls
+   * back to a new tab when the page can't be fetched from this context. */
+  async function openWebPage(paper: ResolvedPaper, url: string, origin: OpenOrigin) {
+    const seq = ++loadSeq.current;
+    const nodeId =
+      origin.kind === "revisit"
+        ? origin.nodeId
+        : origin.kind === "citation"
+          ? nodeIdForPaper(origin.paper)
+          : origin.kind === "author"
+            ? origin.author.id
+            : url;
+    try {
+      setStatus({ kind: "loading", message: "Fetching page…" });
+      const page = await fetchWebPageContent(url);
+      if (seq !== loadSeq.current) return;
+      await showEntry(
+        {
+          kind: "web",
+          webPage: page,
+          paper,
+          label: paper.title || page.title || url,
+          address: url,
+          nodeId,
+        },
+        seq,
+        { push: true },
+      );
+      onOpenedUrl?.(url, paper.title || page.title);
+      if (origin.kind === "citation") {
+        commitGraph((g) => addPaperNode(g, nodeFromPaper(origin.paper), origin.parentId));
+      } else if (origin.kind === "root") {
+        commitGraph((g) => addPaperNode(g, { ...nodeFromPaper(paper), id: nodeId }, null));
+        const pageTitle = page.title;
+        if (pageTitle) amendGraph((g) => upgradePlaceholderTitle(g, nodeId, pageTitle));
+      }
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      // Reader fetch failed (host unreachable from this context) — still
+      // record the node, and open the page in a new tab like before.
+      commitGraph((g) =>
+        addPaperNode(g, nodeFromPaper(paper), origin.kind === "citation" ? origin.parentId : null),
+      );
+      const win = window.open(url, "_blank", "noopener");
+      if (win) {
+        setStatus({ kind: "idle" });
+      } else {
+        setStatus({
+          kind: "error",
+          message: `Could not fetch “${paper.title}” in-app (${(err as Error).message})`,
+          link: { url, text: "Open page" },
+        });
+      }
     }
   }
 
@@ -499,9 +584,9 @@ export default function App({
   }
 
   /** A citation marker was clicked and resolved: open its PDF in-app, so the
-   * cited work gets the same annotated treatment. Papers with no PDF anywhere
-   * (Semantic Scholar page only) can't be rendered here and open in a new tab.
-   * Either way the paper joins the exploration graph as a child of the paper
+   * cited work gets the same annotated treatment. Works with no PDF anywhere
+   * (web-page references, page-only records) open in the in-app reader view.
+   * Either way the work joins the exploration graph as a child of the paper
    * the citation was clicked in. */
   function handleOpenPaper(paper: ResolvedPaper) {
     const parentId = currentNodeId;
@@ -511,17 +596,7 @@ export default function App({
     }
     const pageUrl = paper.pageUrl ?? paper.semanticScholarUrl;
     if (pageUrl) {
-      commitGraph((g) => addPaperNode(g, nodeFromPaper(paper), parentId));
-      const win = window.open(pageUrl, "_blank", "noopener");
-      if (!win) {
-        // Popup blocked (resolution outlived the click's user activation) —
-        // surface the link so opening it is a direct user gesture.
-        setStatus({
-          kind: "error",
-          message: `No PDF found for “${paper.title}”.`,
-          link: { url: pageUrl, text: "Open paper page" },
-        });
-      }
+      void openWebPage(paper, pageUrl, { kind: "citation", paper, parentId });
       return;
     }
     setStatus({ kind: "error", message: `No link found for “${paper.title}”.` });
@@ -559,16 +634,22 @@ export default function App({
       }
       return;
     }
-    const reloadAddress = node.address ?? node.pdfUrl;
-    if (!reloadAddress) {
-      if (node.semanticScholarUrl) window.open(node.semanticScholarUrl, "_blank", "noopener");
-      return;
-    }
     for (let i = history.entries.length - 1; i >= 0; i--) {
       if (history.entries[i].nodeId === node.id) {
         void navigate(i - history.index);
         return;
       }
+    }
+    const reloadAddress = node.address ?? node.pdfUrl;
+    if (!reloadAddress) {
+      const pageUrl = node.userUrl ?? node.semanticScholarUrl;
+      if (pageUrl) {
+        void openWebPage(paperFromNode(node, pageUrl), pageUrl, {
+          kind: "revisit",
+          nodeId: node.id,
+        });
+      }
+      return;
     }
     void openFromUrl(reloadAddress, node.title, { kind: "revisit", nodeId: node.id });
   }
@@ -579,6 +660,10 @@ export default function App({
   function handleRemoveNode(id: string) {
     commitGraph((g) => removeNode(g, id));
     if (currentNodeId === id) setCurrentNodeId(null);
+  }
+
+  function handleAnnotateNode(id: string, annotation: NodeAnnotation) {
+    commitGraph((g) => annotateNode(g, id, annotation));
   }
 
   function handleAddGraphEdge(from: string, to: string) {
@@ -744,6 +829,11 @@ export default function App({
             {view.label} · {view.author.paperCount ?? view.author.works.length} works
           </div>
         )}
+        {status.kind === "idle" && view?.kind === "web" && (
+          <div className="status-line">
+            {view.label} · web page{view.page.siteName ? ` · ${view.page.siteName}` : ""}
+          </div>
+        )}
         {pendingRootInput && (
           <div className="pending-root-banner">
             <span>{pendingRootInput.input}</span>
@@ -789,6 +879,8 @@ export default function App({
           />
         ) : view?.kind === "author" ? (
           <AuthorPageView author={view.author} onOpenPaper={handleOpenPaper} />
+        ) : view?.kind === "web" ? (
+          <WebPageView page={view.page} />
         ) : (
           <div className="app-content-empty" />
         )}
@@ -814,6 +906,7 @@ export default function App({
             graph={graph}
             currentNodeId={currentNodeId}
             onSelectNode={handleGraphSelect}
+            onAnnotateNode={handleAnnotateNode}
             onRemoveNode={handleRemoveNode}
             onAddEdge={handleAddGraphEdge}
             onRemoveEdge={handleRemoveGraphEdge}
@@ -827,6 +920,19 @@ export default function App({
       </div>
     </div>
   );
+}
+
+function paperFromNode(node: GraphNode, pageUrl: string): ResolvedPaper {
+  return {
+    title: node.title,
+    authors: node.authors ?? [],
+    year: node.year,
+    venue: node.venue,
+    abstract: node.abstract,
+    doi: node.doi,
+    pageUrl,
+    source: "page",
+  };
 }
 
 function authorsForPaper(

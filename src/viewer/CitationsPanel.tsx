@@ -89,6 +89,14 @@ export function CitationsPanel({
           return;
         }
         if (!paper.pdfUrl) {
+          // A reference that *is* a web page (newsroom post, report) opens
+          // in the in-app reader; only paper-shaped records with a missing
+          // PDF get the "no PDF" prompt with its web-search escape hatch.
+          if (paper.source === "page" && paper.pageUrl) {
+            setItemStatus(index, null);
+            onOpenPaper(paper);
+            return;
+          }
           setItemStatus(index, { kind: "no-pdf", paper });
           return;
         }
@@ -127,7 +135,9 @@ export function CitationsPanel({
 
   function openPaperPage(paper: ResolvedPaper) {
     const pageUrl = paper.pageUrl ?? paper.semanticScholarUrl;
-    if (pageUrl) window.open(pageUrl, "_blank", "noopener");
+    // Route through the app's paper handler: pages render in the in-app
+    // reader view (and join the exploration graph) rather than a new tab.
+    if (pageUrl) onOpenPaper({ ...paper, pdfUrl: undefined });
   }
 
   return (

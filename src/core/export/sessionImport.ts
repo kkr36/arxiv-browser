@@ -84,6 +84,8 @@ function nodeFromSessionNode(node: SessionExportNode): GraphNode {
     year: node.year,
     venue: node.venue,
     abstract: node.abstract,
+    note: node.note,
+    userUrl: node.links.custom,
     kind: node.kind,
     googleScholarUrl: node.links.googleScholarUrl,
     homepage: node.links.homepage,

@@ -40,7 +40,7 @@ export function buildGraphExportHtml(
       ]
         .filter(Boolean)
         .join(" ");
-      const link = n.pdfUrl ?? n.semanticScholarUrl ?? n.googleScholarUrl;
+      const link = n.pdfUrl ?? n.userUrl ?? n.semanticScholarUrl ?? n.googleScholarUrl;
       return [
         `<g class="${classes}" data-id="${esc(n.id)}" transform="translate(${p.x},${p.y})"${link ? ` tabindex="0" role="link"` : ""}>`,
         `<rect class="node-box" width="${NODE_W}" height="${NODE_H}" rx="7"/>`,
@@ -60,7 +60,9 @@ export function buildGraphExportHtml(
       year: n.year ?? null,
       venue: n.venue ?? null,
       abstract: n.abstract ?? null,
+      note: n.note ?? null,
       pdfUrl: n.pdfUrl ?? null,
+      userUrl: n.userUrl ?? null,
       semanticScholarUrl: n.semanticScholarUrl ?? null,
       googleScholarUrl: n.googleScholarUrl ?? null,
       kind: n.kind,
@@ -125,6 +127,8 @@ export function buildGraphExportHtml(
   }
   #card .t { font-weight: 600; margin-bottom: 4px; }
   #card .m { color: var(--ink-2); margin-bottom: 6px; font-size: 12px; }
+  #card .n { color: #b8860b; font-style: italic; font-size: 12px; margin-bottom: 6px; }
+  @media (prefers-color-scheme: dark) { #card .n { color: #e8c268; } }
   #card .a {
     color: var(--ink-2); font-size: 12px; overflow: hidden; display: -webkit-box;
     -webkit-line-clamp: 6; -webkit-box-orient: vertical;
@@ -152,6 +156,7 @@ ${nodeMarkup}
 <div id="card" hidden>
   <div class="t"></div>
   <div class="m"></div>
+  <div class="n"></div>
   <div class="a"></div>
   <div class="f"></div>
 </div>
@@ -163,6 +168,7 @@ ${nodeMarkup}
   var fields = {
     t: card.querySelector(".t"),
     m: card.querySelector(".m"),
+    n: card.querySelector(".n"),
     a: card.querySelector(".a"),
     f: card.querySelector(".f"),
   };
@@ -173,7 +179,7 @@ ${nodeMarkup}
   }
 
   function openPaper(paper) {
-    var href = paper.pdfUrl || paper.semanticScholarUrl || paper.googleScholarUrl;
+    var href = paper.pdfUrl || paper.userUrl || paper.semanticScholarUrl || paper.googleScholarUrl;
     if (href && href.indexOf("data:application/pdf") === 0) href = blobUrlFromDataUrl(href);
     if (href) window.open(href, "_blank", "noopener");
   }
@@ -197,6 +203,8 @@ ${nodeMarkup}
     if (paper.venue) meta += (meta ? " · " : "") + paper.venue;
     fields.m.textContent = meta;
     fields.m.hidden = !meta;
+    fields.n.textContent = paper.note || "";
+    fields.n.hidden = !paper.note;
     fields.a.textContent = paper.abstract || "";
     fields.a.hidden = !paper.abstract;
     fields.f.textContent = paper.kind === "author"

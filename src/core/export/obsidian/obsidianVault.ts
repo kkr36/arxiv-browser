@@ -81,6 +81,7 @@ function renderNote(
   if (node.year !== undefined) fm.push(`year: ${node.year}`);
   if (node.venue) fm.push(`venue: ${yamlValue(node.venue)}`);
   fm.push(`kind: ${node.kind === "author" ? "author" : "paper"}`);
+  if (node.links.custom) fm.push(`custom_url: ${node.links.custom}`);
   if (node.links.pdfUrl) fm.push(`pdf_url: ${node.links.pdfUrl}`);
   if (node.links.semanticScholarUrl) fm.push(`semantic_scholar_url: ${node.links.semanticScholarUrl}`);
   if (node.links.googleScholarUrl) fm.push(`google_scholar_url: ${node.links.googleScholarUrl}`);
@@ -95,6 +96,11 @@ function renderNote(
 
   const body: string[] = ["", `# ${node.title}`];
 
+  if (node.note) {
+    body.push("", "## Notes");
+    for (const line of node.note.split(/\r?\n/)) body.push(line);
+  }
+
   if (node.abstract) {
     body.push("");
     body.push("> [!abstract]- Abstract");
@@ -102,6 +108,9 @@ function renderNote(
   }
 
   const links: string[] = [];
+  // A PDF-shaped custom link doubles as the node's pdfUrl; don't list it twice.
+  if (node.links.custom && node.links.custom !== node.links.pdfUrl)
+    links.push(`- [Link](${node.links.custom})`);
   if (node.links.pdfUrl) links.push(`- [PDF](${node.links.pdfUrl})`);
   if (node.links.semanticScholarUrl) links.push(`- [Semantic Scholar](${node.links.semanticScholarUrl})`);
   if (node.links.googleScholarUrl) links.push(`- [Google Scholar](${node.links.googleScholarUrl})`);

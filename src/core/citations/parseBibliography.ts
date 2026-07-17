@@ -1,4 +1,5 @@
 import { buildPageLines, type PageLine } from "../pdf/buildLines";
+import { repairDetachedDiacritics } from "../pdf/repairDiacritics";
 import type { BibEntry, CitationStyle, PageText } from "../types";
 
 // Compared against the line with whitespace/periods stripped, so letter-spaced
@@ -9,12 +10,13 @@ const STOP_RE = /^([A-Z0-9]{1,3}[.\s:]+)?(appendix|acknowledg(e)?ments?|suppleme
 // the word "Appendix". Stop there so appendix list items cannot masquerade as
 // bracket-key bibliography entries.
 const APPENDIX_LETTER_HEADING_RE =
-  /^[A-Z](?:\.\d+)*\.?\s+[\p{Lu}0-9][\p{L}\p{M}0-9 "'’‘,:;()/-]{2,80}$/u;
+  /^[A-Z](?:\.\d+)*\.?\s+[\p{Lu}0-9][\p{L}\p{M}0-9 "'’‘,:;()/-]{2,80}[?!]?$/u;
 const YEAR_RE = /\b(?:19|20)\d{2}[a-z]?\b/;
 const RUNNING_HEADER_RE = /^published as\s+/i;
 const BRACKET_NUMBER_RE = /^\[(\d+)\]\s*/;
 const BRACKET_LABEL_RE = /^\[([A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/;
-const DOTTED_NUMBER_RE = /^(\d{1,3})\.\s+(?=[A-Z(])/;
+// No leading zeros: "009. URL …" is a wrapped DOI fragment, not entry 9.
+const DOTTED_NUMBER_RE = /^([1-9]\d{0,2})\.\s+(?=[A-Z(])/;
 // A reference's opening author, written either surname-first ("Devlin, J.",
 // "Ben-Porat, O.") or initials-first ("C. Toups", "K. A. Creel", "R. H.
 // Thaler"). Both are needed: a single-line entry sitting at the same left
@@ -69,6 +71,7 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
   }
   const stopLine = stopIdx < allLines.length ? allLines[stopIdx] : null;
 
+  const runningHeads = findRunningHeads(allLines);
   const bibLines = allLines
     .slice(headingIdx + 1, stopIdx)
     .filter((l) => l.text.trim().length > 0)
@@ -77,7 +80,8 @@ export function parseBibliography(pages: PageText[]): BibliographyParseResult | 
     .filter((l) => !/^\d{1,4}$/.test(l.text.trim()))
     // Repeated conference/journal running heads can appear inside the
     // extracted reference stream at page breaks.
-    .filter((l) => !RUNNING_HEADER_RE.test(l.text.trim()));
+    .filter((l) => !RUNNING_HEADER_RE.test(l.text.trim()))
+    .filter((l) => !runningHeads.has(l.text.trim()));
   if (bibLines.length === 0) return null;
 
   const groups = groupLinesIntoEntries(bibLines, hasHangingIndent(bibLines));
@@ -129,6 +133,38 @@ function hasHangingIndent(lines: PageLine[]): boolean {
   return indented >= 2;
 }
 
+/**
+ * Lines the layout repeats at the top of pages (the paper's title or venue as
+ * a running head). They land mid-entry when a bibliography spans a page break,
+ * so they're filtered before grouping. A text qualifies when it recurs on 3+
+ * pages and sits among the first lines of at least two of them — venue names
+ * repeated *inside* entries never appear at the top of a page.
+ */
+function findRunningHeads(lines: PageLine[]): Set<string> {
+  const pagesByText = new Map<string, Set<number>>();
+  const topPagesByText = new Map<string, Set<number>>();
+  let linesSeenOnPage = 0;
+  let currentPage = -1;
+  for (const line of lines) {
+    if (line.page !== currentPage) {
+      currentPage = line.page;
+      linesSeenOnPage = 0;
+    }
+    linesSeenOnPage++;
+    const text = line.text.trim();
+    if (text.length < 12) continue;
+    (pagesByText.get(text) ?? pagesByText.set(text, new Set()).get(text)!).add(line.page);
+    if (linesSeenOnPage <= 2) {
+      (topPagesByText.get(text) ?? topPagesByText.set(text, new Set()).get(text)!).add(line.page);
+    }
+  }
+  const heads = new Set<string>();
+  for (const [text, pages] of pagesByText) {
+    if (pages.size >= 3 && (topPagesByText.get(text)?.size ?? 0) >= 2) heads.add(text);
+  }
+  return heads;
+}
+
 function isBibliographyStopLine(line: PageLine, lines: PageLine[]): boolean {
   const text = line.text.trim();
   if (STOP_RE.test(text)) return true;
@@ -169,7 +205,9 @@ function groupLinesIntoEntries(lines: PageLine[], hangingIndent: boolean): PageL
       !continuesHyphenatedWord &&
       (BRACKET_NUMBER_RE.test(trimmed) ||
         BRACKET_LABEL_RE.test(trimmed) ||
-        DOTTED_NUMBER_RE.test(trimmed));
+        // A dotted number after a line ending in ","/"–" is the tail of a
+        // page range ("pp. 352– / 370. Routledge"), not an entry number.
+        (DOTTED_NUMBER_RE.test(trimmed) && !continuesOpenAuthorList));
     const explicitAuthorYearStart =
       !continuesHyphenatedWord &&
       !continuesOpenAuthorList &&
@@ -227,17 +265,19 @@ function isAtColumnStart(line: PageLine, lines: PageLine[]): boolean {
 }
 
 function buildEntry(lines: PageLine[], index: number): BibEntry {
-  const rawJoined = lines
-    .map((l) => l.text.trim())
-    .join(" ")
-    .replace(/-\s+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const rawJoined = repairDetachedDiacritics(
+    lines
+      .map((l) => l.text.trim())
+      .join(" ")
+      .replace(/-\s+/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
   const bracketMatch = rawJoined.match(/^\[(\d+)\]\s*/);
   const labelMatch = !bracketMatch ? rawJoined.match(BRACKET_LABEL_RE) : null;
   const dottedMatch =
-    !bracketMatch && !labelMatch ? rawJoined.match(/^(\d{1,3})\.\s+/) : null;
+    !bracketMatch && !labelMatch ? rawJoined.match(/^([1-9]\d{0,2})\.\s+/) : null;
   const number = bracketMatch
     ? Number(bracketMatch[1])
     : dottedMatch
@@ -247,7 +287,7 @@ function buildEntry(lines: PageLine[], index: number): BibEntry {
 
   const rawText = rawJoined
     .replace(/^\[(?:\d+|[A-Za-z][A-Za-z0-9+_.:-]{1,24})\]\s*/, "")
-    .replace(/^\d{1,3}\.\s+/, "");
+    .replace(/^[1-9]\d{0,2}\.\s+/, "");
 
   return {
     index,

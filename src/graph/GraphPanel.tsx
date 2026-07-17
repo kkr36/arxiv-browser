@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ExplorationGraph, GraphNode } from "../core/graph/explorationGraph";
+import type { ExplorationGraph, GraphNode, NodeAnnotation } from "../core/graph/explorationGraph";
 import { rootIds } from "../core/graph/explorationGraph";
 import { layoutGraph, NODE_H, NODE_W, type GraphLayout, type NodePos } from "../core/graph/layoutGraph";
 import { buildSessionExport } from "../core/export/sessionExport";
 import { buildGraphBibtex } from "../core/export/bibtex";
+import { buildReadingListHtml } from "../core/export/readingList";
 import { createZip } from "../core/export/zip";
 import { buildObsidianVault } from "../core/export/obsidian/obsidianVault";
 import { buildGraphExportHtml } from "./exportGraphHtml";
@@ -17,6 +18,7 @@ interface GraphPanelProps {
   /** Node of the paper currently shown in the viewer (highlighted). */
   currentNodeId: string | null;
   onSelectNode: (node: GraphNode) => void;
+  onAnnotateNode: (id: string, annotation: NodeAnnotation) => void;
   onRemoveNode: (id: string) => void;
   onAddEdge: (from: string, to: string) => void;
   onRemoveEdge: (from: string, to: string) => void;
@@ -43,6 +45,7 @@ export function GraphPanel({
   graph,
   currentNodeId,
   onSelectNode,
+  onAnnotateNode,
   onRemoveNode,
   onAddEdge,
   onRemoveEdge,
@@ -55,6 +58,9 @@ export function GraphPanel({
   const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
   const roots = useMemo(() => rootIds(graph), [graph]);
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [nodeMenu, setNodeMenu] = useState<HoverState | null>(null);
+  const [annotateTarget, setAnnotateTarget] = useState<GraphNode | null>(null);
+  const nodeMenuRef = useRef<HTMLDivElement | null>(null);
   const { width, resizeHandleRef } = useRightPanelResize(WIDTH_KEY, 400);
   const [manualPositions, setManualPositions] = useState(initialManualPositions);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
@@ -95,6 +101,35 @@ export function GraphPanel({
       key && graph.edges.some((edge) => edgeKey(edge.from, edge.to) === key) ? key : null,
     );
   }, [graph.edges]);
+
+  // Keep the click menu / annotation dialog pointed at live nodes (a node may
+  // be removed or re-merged while they're open).
+  useEffect(() => {
+    setNodeMenu((menu) => {
+      if (!menu) return menu;
+      const node = graph.nodes.find((n) => n.id === menu.node.id);
+      return node ? { ...menu, node } : null;
+    });
+    setAnnotateTarget((target) =>
+      target ? graph.nodes.find((n) => n.id === target.id) ?? null : null,
+    );
+  }, [graph.nodes]);
+
+  useEffect(() => {
+    if (!nodeMenu) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!nodeMenuRef.current?.contains(e.target as Node)) setNodeMenu(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNodeMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [nodeMenu]);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -251,6 +286,15 @@ export function GraphPanel({
     );
   }
 
+  function handleExportReadingList() {
+    setExportMenuOpen(false);
+    downloadBlob(
+      new Blob([buildReadingListHtml(graph)], { type: "text/html" }),
+      `paper-reading-list-${new Date().toISOString().slice(0, 10)}.html`,
+      { directory: SESSION_DOWNLOAD_DIR },
+    );
+  }
+
   function handlePublishSemble() {
     setExportMenuOpen(false);
     setSembleOpen(true);
@@ -282,6 +326,9 @@ export function GraphPanel({
             <div className="graph-export-menu">
               <button data-export="html" onClick={handleExportHtml}>
                 HTML page
+              </button>
+              <button data-export="reading-list" onClick={handleExportReadingList}>
+                Reading list (HTML)
               </button>
               <button data-export="obsidian" onClick={handleExportObsidian}>
                 Obsidian vault (.zip)
@@ -471,16 +518,19 @@ export function GraphPanel({
                   onPointerUp={handleNodeDragEnd}
                   onPointerCancel={handleNodeDragEnd}
                   onMouseEnter={(e) => {
+                    if (nodeMenu) return;
                     const rect = e.currentTarget.getBoundingClientRect();
                     setHover({ node: n, x: rect.left, y: rect.top });
                   }}
                   onMouseLeave={() => setHover((h) => (h?.node.id === n.id ? null : h))}
-                  onClick={() => {
+                  onClick={(e) => {
                     if (suppressClickNodeId.current === n.id) {
                       suppressClickNodeId.current = null;
                       return;
                     }
-                    onSelectNode(n);
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setHover(null);
+                    setNodeMenu({ node: n, x: rect.left, y: rect.top });
                   }}
                 >
                   <rect className="graph-node-box" width={NODE_W} height={NODE_H} rx={7} />
@@ -493,6 +543,11 @@ export function GraphPanel({
                   <text className="graph-node-meta" x={10} y={31}>
                     {metaLine(n)}
                   </text>
+                  {(n.note || n.userUrl) && (
+                    <text className="graph-node-annot" x={NODE_W - 16} y={NODE_H - 7}>
+                      ✎
+                    </text>
+                  )}
                   <g
                     className="graph-node-remove"
                     transform={`translate(${NODE_W - 11}, 11)`}
@@ -514,7 +569,38 @@ export function GraphPanel({
         </div>
       )}
 
-      {hover && <HoverCard hover={hover} isCurrent={hover.node.id === currentNodeId} />}
+      {hover && !nodeMenu && (
+        <HoverCard hover={hover} isCurrent={hover.node.id === currentNodeId} />
+      )}
+
+      {nodeMenu && (
+        <NodeMenu
+          menu={nodeMenu}
+          menuRef={nodeMenuRef}
+          isCurrent={nodeMenu.node.id === currentNodeId}
+          onOpen={() => {
+            const node = nodeMenu.node;
+            setNodeMenu(null);
+            onSelectNode(node);
+          }}
+          onAnnotate={() => {
+            setAnnotateTarget(nodeMenu.node);
+            setNodeMenu(null);
+          }}
+          onClose={() => setNodeMenu(null)}
+        />
+      )}
+
+      {annotateTarget && (
+        <AnnotateDialog
+          node={annotateTarget}
+          onSave={(annotation) => {
+            onAnnotateNode(annotateTarget.id, annotation);
+            setAnnotateTarget(null);
+          }}
+          onClose={() => setAnnotateTarget(null)}
+        />
+      )}
 
       {sembleOpen && (
         <SembleDialog
@@ -555,6 +641,130 @@ function edgeKey(from: string, to: string): string {
   return `${from}→${to}`;
 }
 
+/** The best "web page" link for a node: the user's own link first, then the
+ * landing/scholar pages. */
+function nodeWebLink(node: GraphNode): string | undefined {
+  return node.userUrl ?? node.semanticScholarUrl ?? node.googleScholarUrl ?? node.homepage;
+}
+
+function NodeMenu({
+  menu,
+  menuRef,
+  isCurrent,
+  onOpen,
+  onAnnotate,
+  onClose,
+}: {
+  menu: HoverState;
+  menuRef: React.MutableRefObject<HTMLDivElement | null>;
+  isCurrent: boolean;
+  onOpen: () => void;
+  onAnnotate: () => void;
+  onClose: () => void;
+}) {
+  const { node } = menu;
+  // Same anchoring as the hover card: the panel hugs the right edge, so the
+  // menu opens to the left of the node.
+  const right = Math.max(8, window.innerWidth - menu.x + 10);
+  const top = Math.min(menu.y, window.innerHeight - 220);
+
+  const openable = node.kind === "author" || node.address || node.pdfUrl || nodeWebLink(node);
+  const openLabel =
+    node.kind === "author"
+      ? "Open author page"
+      : node.address || node.pdfUrl
+        ? "Open in viewer"
+        : "Open paper page ↗";
+  const webLink = nodeWebLink(node);
+
+  return (
+    <div className="graph-node-menu" style={{ right, top }} ref={menuRef}>
+      <div className="graph-node-menu-title">{node.title}</div>
+      {node.note && <div className="graph-node-menu-note">{node.note}</div>}
+      <button onClick={onOpen} disabled={isCurrent || !openable}>
+        {isCurrent ? "Currently open" : openLabel}
+      </button>
+      {webLink && (
+        <button
+          onClick={() => {
+            onClose();
+            window.open(webLink, "_blank", "noopener");
+          }}
+        >
+          {node.userUrl ? "Open link ↗" : "Open web page ↗"}
+        </button>
+      )}
+      <button onClick={onAnnotate}>
+        {node.note || node.userUrl ? "Edit annotation…" : "Annotate…"}
+      </button>
+    </div>
+  );
+}
+
+function AnnotateDialog({
+  node,
+  onSave,
+  onClose,
+}: {
+  node: GraphNode;
+  onSave: (annotation: NodeAnnotation) => void;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState(node.note ?? "");
+  const [userUrl, setUserUrl] = useState(node.userUrl ?? "");
+  const urlValid = !userUrl.trim() || /^https?:\/\/\S+$/i.test(userUrl.trim());
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="semble-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="semble-dialog graph-annotate-dialog">
+        <div className="semble-dialog-title">Annotate</div>
+        <div className="semble-dialog-subtitle">{node.title}</div>
+        <label className="semble-field">
+          <span>Notes</span>
+          <textarea
+            rows={4}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why this paper matters, key takeaways, follow-ups…"
+            autoFocus
+          />
+        </label>
+        <label className="semble-field">
+          <span>Link (project page, or a PDF you found yourself)</span>
+          <input
+            type="url"
+            value={userUrl}
+            onChange={(e) => setUserUrl(e.target.value)}
+            placeholder="https://…"
+          />
+        </label>
+        {!urlValid && <div className="semble-error">Link must be an http(s) URL.</div>}
+        <div className="semble-dialog-subtitle">
+          Direct PDF links become the node's address, so clicking it opens the PDF in the viewer.
+        </div>
+        <div className="semble-actions">
+          <button onClick={onClose}>Cancel</button>
+          <button
+            className="semble-primary"
+            disabled={!urlValid}
+            onClick={() => onSave({ note, userUrl })}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean }) {
   const { node } = hover;
   // The panel hugs the right edge, so the card opens to the left of the node.
@@ -588,17 +798,12 @@ function HoverCard({ hover, isCurrent }: { hover: HoverState; isCurrent: boolean
     <div className="graph-hover-card" style={{ right, top }}>
       <div className="graph-hover-title">{node.title}</div>
       {meta && <div className="graph-hover-meta">{meta}</div>}
+      {node.note && <div className="graph-hover-note">{node.note}</div>}
       {node.abstract && <div className="graph-hover-abstract">{node.abstract}</div>}
       <div className="graph-hover-footer">
         {isCurrent
-          ? "Currently open"
-            : node.kind === "author"
-              ? "Click to open this author's works"
-              : node.address
-            ? "Click to open in the browser"
-            : node.semanticScholarUrl
-              ? "Click to open the paper page"
-              : "No link available"}
+          ? "Currently open · click for options"
+          : "Click for options (open, annotate)"}
       </div>
     </div>
   );
