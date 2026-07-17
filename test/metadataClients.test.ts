@@ -164,6 +164,27 @@ console.log("\nauthor extraction:");
     rawMarkedNames,
   );
 }
+{
+  // ACM PACM layout (arXiv:2310.10858): no "Abstract" heading, affiliation on
+  // the same line as each all-caps name, and the 20pt rotated arXiv stamp is
+  // the largest font on the page.
+  const page = pageFromLines([
+    ["Designing Shared Information Displays for Agents of Varying", 14.3],
+    ["Strategic Sophistication", 14.3],
+    ["DONGPING ZHANG, Northwestern University, USA", 10.9],
+    ["JASON HARTLINE, Northwestern University, USA", 10.9],
+    ["JESSICA HULLMAN, Northwestern University, USA", 10.9],
+    ["Data-driven predictions are often perceived as inaccurate in hindsight due to behavioral responses.", 9],
+    ["1 INTRODUCTION", 10],
+    ["arXiv:2310.10858v3 [cs.HC] 26 Apr 2024", 20],
+  ]);
+  const names = extractAuthorCandidates([page]).map((author) => author.name);
+  check(
+    "inline-affiliation authors extracted despite arXiv stamp font",
+    names.join("|") === "Dongping Zhang|Jason Hartline|Jessica Hullman",
+    names.join(", "),
+  );
+}
 
 console.log("\ncrossref mapping + validation:");
 const crWork: CrossrefWork = {

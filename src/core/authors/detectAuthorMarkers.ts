@@ -44,7 +44,11 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
   const candidates: AuthorProfileRef[] = [];
 
   for (const page of pages.slice(0, MAX_AUTHOR_PAGES)) {
-    const lines = buildPageLines(page);
+    // The rotated arXiv stamp on page 1's margin is set in a very large font.
+    // In layouts with no "Abstract" heading to bound the header (ACM PACM),
+    // it would register as the page's largest "title" font and stop the real
+    // title lines from being filtered out below.
+    const lines = buildPageLines(page).filter((line) => !ARXIV_STAMP_RE.test(line.text));
     const abstractLineIndex = lines.findIndex((line) => /^\s*abstract\b/i.test(line.text));
     const headerLines = lines.slice(0, abstractLineIndex === -1 ? Math.min(lines.length, 80) : abstractLineIndex);
     // The title is the largest-font text at the top of the page; author names
@@ -57,6 +61,11 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
     const emailAnchored = authorsNearEmailLines(lineTexts);
     if (emailAnchored.length > 0) {
       candidates.push(...emailAnchored.map((name) => ({ name })));
+      return dedupeAuthors(candidates);
+    }
+    const inlineAffiliationAuthors = authorsFromInlineAffiliationLines(lineTexts);
+    if (inlineAffiliationAuthors.length > 0) {
+      candidates.push(...inlineAffiliationAuthors.map((name) => ({ name })));
       return dedupeAuthors(candidates);
     }
     const stackedAffiliationAuthors = authorsFromStackedAffiliationLines(lineTexts);
@@ -77,6 +86,8 @@ export function extractAuthorCandidates(pages: PageText[]): AuthorProfileRef[] {
 }
 
 const TITLE_FONT_EPS = 1;
+
+const ARXIV_STAMP_RE = /^\s*arxiv:\s*\S+/i;
 
 /** True when `line` is set at the header's largest font (the title), and a
  * smaller font exists in the header (so real authors sit below the title). */
@@ -105,6 +116,36 @@ function authorsNearEmailLines(lines: string[]): string[] {
       } else if (started) {
         break;
       }
+    }
+  }
+  return names;
+}
+
+/** ACM PACM-style headers put each author's affiliation on the same line as
+ * the name: "DONGPING ZHANG, Northwestern University, USA". Collect the
+ * leading comma-separated segments that read as person names, but only when
+ * the rest of the line reads as an affiliation — otherwise the line is left
+ * for the generic per-line parsing. */
+function authorsFromInlineAffiliationLines(lines: string[]): string[] {
+  const names: string[] = [];
+  for (const line of lines) {
+    const segments = line
+      .split(/\s*(?:,|;|\band\b|&|·|\|)\s*/iu)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    if (segments.length < 2) continue;
+
+    const lineNames: string[] = [];
+    let i = 0;
+    for (; i < segments.length; i++) {
+      if (INSTITUTION_LINE_RE.test(segments[i])) break;
+      const name = personNameFromText(segments[i]);
+      if (!name) break;
+      lineNames.push(name);
+    }
+    if (lineNames.length === 0 || i >= segments.length) continue;
+    if (isLikelyAffiliationLine(segments.slice(i).join(", "))) {
+      names.push(...lineNames);
     }
   }
   return names;
@@ -147,7 +188,11 @@ function namesFromLine(line: string): string[] {
 
 function standaloneAuthorNameFromLine(line: string | undefined): string | null {
   if (!line || /[,;]|(?:\band\b)|&|\u00b7|\|/iu.test(line)) return null;
-  const cleaned = cleanAuthorLine(line);
+  return personNameFromText(line);
+}
+
+function personNameFromText(text: string): string | null {
+  const cleaned = cleanAuthorLine(text);
   if (!cleaned || rejectAuthorLine(cleaned)) return null;
 
   const normalized = normalizeAuthorName(cleaned);
