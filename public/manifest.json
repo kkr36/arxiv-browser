@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Paper Browser",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Annotate PDF citations and follow cited PDFs in the same tab.",
   "icons": {
     "16": "icons/icon16.png",
